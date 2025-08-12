@@ -1,0 +1,140 @@
+run:
+  timeout: 5m
+  go: "1.24"
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - misspell
+    - gosec
+    - prealloc
+    - gocritic
+    - revive
+    - gocyclo
+    - dupl
+    - goconst
+    - gomnd
+    - gocognit
+    - gosec
+    - maligned
+    - deadcode
+    - varcheck
+    - structcheck
+    - typecheck
+    - unparam
+    - unconvert
+    - goconst
+    - gomnd
+    - gocognit
+    - gocyclo
+    - dupl
+    - prealloc
+    - gocritic
+    - revive
+    - misspell
+    - ineffassign
+    - unused
+    - gosimple
+    - staticcheck
+    - errcheck
+    - govet
+    - goimports
+    - gofmt
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gomnd:
+    checks: argument,case,condition,operation,return,assign
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck
+  gosec:
+    excludes:
+      - G101 # Look for hardcoded credentials
+      - G102 # Bind to all interfaces
+      - G103 # Audit the use of unsafe block
+      - G104 # Audit errors not checked
+      - G106 # Audit the use of ssh.InsecureIgnoreHostKey
+      - G107 # Url provided to HTTP request as taint input
+      - G108 # Profiling endpoint is automatically exposed on /debug/pprof
+      - G109 # Potential Integer overflow made by strconv.Atoi result conversion to int16/32
+      - G110 # Potential DoS vulnerability via decompression bomb
+      - G111 # Potential directory traversal
+      - G112 # Potential slowloris attack because ReadHeaderTimeout is not configured in the http.Server
+      - G113 # Usage of Rat.SetString in math/big with an overflow
+      - G114 # Use of net/http serve function that has no support for setting timeouts
+      - G201 # SQL string concatenation using + operator
+      - G202 # SQL string concatenation using fmt.Sprintf
+      - G203 # Use of unescaped data in HTML templates
+      - G204 # Audit use of command execution
+      - G301 # Poor file permissions used when creating a directory
+      - G302 # Poor file permissions used with chmod
+      - G303 # Creating tempfile using a predictable path
+      - G304 # Potential file inclusion via variable
+      - G305 # File path traversal when extracting zip/tar archive
+      - G306 # Poor file permissions used when writing to a file
+      - G307 # Poor file permissions used when creating a file with os.Create
+      - G401 # Detect the usage of DES, RC4, MD5 or SHA1
+      - G402 # Look for bad TLS connection settings
+      - G403 # Ensure minimum RSA key length of 2048 bits
+      - G404 # Insecure random number source (rand)
+      - G501 # Import blacklist: crypto/md5
+      - G502 # Import blacklist: crypto/des
+      - G503 # Import blacklist: crypto/rc4
+      - G504 # Import blacklist: net/http/cgi
+      - G505 # Import blacklist: crypto/sha1
+      - G601 # Implicit memory aliasing in for loop
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gomnd
+        - gocyclo
+        - dupl
+        - goconst
+    - path: examples/
+      linters:
+        - gomnd
+        - gocyclo
+        - dupl
+        - goconst
+        - gosec
+    - path: cmd/
+      linters:
+        - gomnd
+        - gocyclo
+        - dupl
+        - goconst
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-use-default: false

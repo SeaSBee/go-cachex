@@ -1,0 +1,19 @@
+apiVersion: v2
+name: go-cachex
+description: A production-grade, highly concurrent, thread-safe cache library built on top of go-redis
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - cache
+  - redis
+  - go
+  - microservices
+  - performance
+home: https://github.com/SeaSBee/go-cachex
+sources:
+  - https://github.com/SeaSBee/go-cachex
+maintainers:
+  - name: SeaSBee Team
+    email: team@seasbee.com
+icon: https://raw.githubusercontent.com/SeaSBee/go-cachex/main/docs/logo.png

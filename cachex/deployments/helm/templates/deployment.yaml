@@ -1,0 +1,233 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "go-cachex.fullname" . }}
+  labels:
+    {{- include "go-cachex.labels" . | nindent 4 }}
+  {{- with .Values.deployment.podTemplate.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.deployment.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "go-cachex.selectorLabels" . | nindent 6 }}
+  {{- with .Values.deployment.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      {{- with .Values.deployment.podTemplate.labels }}
+      labels:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.podTemplate.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "go-cachex.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.deployment.podTemplate.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.podTemplate.podAntiAffinity }}
+      affinity:
+        podAntiAffinity:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+      {{- with .Values.deployment.podTemplate.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.podTemplate.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.command }}
+          command:
+            {{- toYaml .Values.command | nindent 12 }}
+          {{- end }}
+          {{- if .Values.args }}
+          args:
+            {{- toYaml .Values.args | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.observability.metrics.port }}
+              protocol: TCP
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            # Redis configuration
+            - name: CACHEX_REDIS_ADDR
+              value: "{{ include "go-cachex.fullname" . }}-redis:{{ .Values.redis.internal.service.port }}"
+            {{- if .Values.redis.internal.security.password }}
+            - name: CACHEX_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "go-cachex.fullname" . }}-redis
+                  key: {{ .Values.redis.internal.security.secretKey }}
+            {{- end }}
+            - name: CACHEX_REDIS_DB
+              value: "{{ .Values.redis.external.database | default 0 }}"
+            {{- if .Values.redis.external.tls.enabled }}
+            - name: CACHEX_REDIS_TLS_ENABLED
+              value: "true"
+            {{- if .Values.redis.external.tls.insecureSkipVerify }}
+            - name: CACHEX_REDIS_TLS_INSECURE_SKIP_VERIFY
+              value: "true"
+            {{- end }}
+            {{- end }}
+            
+            # Cache configuration
+            - name: CACHEX_DEFAULT_TTL
+              value: "{{ .Values.cache.defaultTTL }}"
+            - name: CACHEX_MAX_RETRIES
+              value: "{{ .Values.cache.retry.maxRetries }}"
+            - name: CACHEX_CIRCUIT_BREAKER_THRESHOLD
+              value: "{{ .Values.cache.circuitBreaker.threshold }}"
+            - name: CACHEX_CIRCUIT_BREAKER_TIMEOUT
+              value: "{{ .Values.cache.circuitBreaker.timeout }}"
+            - name: CACHEX_RATE_LIMIT_REQUESTS_PER_SECOND
+              value: "{{ .Values.cache.rateLimit.requestsPerSecond }}"
+            - name: CACHEX_RATE_LIMIT_BURST
+              value: "{{ .Values.cache.rateLimit.burst }}"
+            
+            # Security configuration
+            {{- if .Values.security.encryptionKey }}
+            - name: CACHEX_ENCRYPTION_KEY
+              value: "{{ .Values.security.encryptionKey }}"
+            {{- end }}
+            - name: CACHEX_REDACT_LOGS
+              value: "{{ .Values.security.redactLogs }}"
+            - name: CACHEX_MAX_KEY_LENGTH
+              value: "{{ .Values.security.maxKeyLength }}"
+            - name: CACHEX_MAX_VALUE_SIZE
+              value: "{{ .Values.security.maxValueSize }}"
+            
+            # Observability configuration
+            - name: CACHEX_OBSERVABILITY_ENABLE_METRICS
+              value: "{{ .Values.observability.enableMetrics }}"
+            - name: CACHEX_OBSERVABILITY_ENABLE_TRACING
+              value: "{{ .Values.observability.enableTracing }}"
+            - name: CACHEX_OBSERVABILITY_ENABLE_LOGGING
+              value: "{{ .Values.observability.enableLogging }}"
+            - name: CACHEX_OBSERVABILITY_SERVICE_NAME
+              value: "{{ .Values.observability.serviceName }}"
+            - name: CACHEX_OBSERVABILITY_SERVICE_VERSION
+              value: "{{ .Values.observability.serviceVersion }}"
+            - name: CACHEX_OBSERVABILITY_ENVIRONMENT
+              value: "{{ .Values.observability.environment }}"
+            
+            # Feature flags
+            - name: CACHEX_FEATURE_REFRESH_AHEAD
+              value: "{{ .Values.cache.features.refreshAhead }}"
+            - name: CACHEX_FEATURE_NEGATIVE_CACHING
+              value: "{{ .Values.cache.features.negativeCaching }}"
+            - name: CACHEX_FEATURE_BLOOM_FILTER
+              value: "{{ .Values.cache.features.bloomFilter }}"
+            - name: CACHEX_FEATURE_DEAD_LETTER_QUEUE
+              value: "{{ .Values.cache.features.deadLetterQueue }}"
+            - name: CACHEX_FEATURE_PUBSUB_INVALIDATION
+              value: "{{ .Values.cache.features.pubSubInvalidation }}"
+            - name: CACHEX_FEATURE_CIRCUIT_BREAKER
+              value: "{{ .Values.cache.features.circuitBreaker }}"
+            - name: CACHEX_FEATURE_RATE_LIMITING
+              value: "{{ .Values.cache.features.rateLimiting }}"
+            - name: CACHEX_FEATURE_ENCRYPTION
+              value: "{{ .Values.cache.features.encryption }}"
+            - name: CACHEX_FEATURE_COMPRESSION
+              value: "{{ .Values.cache.features.compression }}"
+            - name: CACHEX_FEATURE_OBSERVABILITY
+              value: "{{ .Values.cache.features.observability }}"
+            - name: CACHEX_FEATURE_TAGGING
+              value: "{{ .Values.cache.features.tagging }}"
+            
+            # Pool configuration
+            - name: CACHEX_WORKER_POOL_MIN_WORKERS
+              value: "{{ .Values.pool.workerPool.minWorkers }}"
+            - name: CACHEX_WORKER_POOL_MAX_WORKERS
+              value: "{{ .Values.pool.workerPool.maxWorkers }}"
+            - name: CACHEX_WORKER_POOL_QUEUE_SIZE
+              value: "{{ .Values.pool.workerPool.queueSize }}"
+            - name: CACHEX_PIPELINE_BATCH_SIZE
+              value: "{{ .Values.pool.pipeline.batchSize }}"
+            - name: CACHEX_PIPELINE_MAX_CONCURRENT
+              value: "{{ .Values.pool.pipeline.maxConcurrent }}"
+            
+            # Pub/Sub configuration
+            - name: CACHEX_PUBSUB_ENABLED
+              value: "{{ .Values.pubsub.enabled }}"
+            - name: CACHEX_PUBSUB_INVALIDATION_CHANNEL
+              value: "{{ .Values.pubsub.invalidationChannel }}"
+            - name: CACHEX_PUBSUB_HEALTH_CHANNEL
+              value: "{{ .Values.pubsub.healthChannel }}"
+            - name: CACHEX_PUBSUB_MAX_SUBSCRIBERS
+              value: "{{ .Values.pubsub.maxSubscribers }}"
+            - name: CACHEX_PUBSUB_MESSAGE_TIMEOUT
+              value: "{{ .Values.pubsub.messageTimeout }}"
+            
+            # Hot reload configuration
+            - name: CACHEX_HOT_RELOAD_ENABLED
+              value: "{{ .Values.hotReload.enabled }}"
+            - name: CACHEX_HOT_RELOAD_CONFIG_FILE
+              value: "{{ .Values.hotReload.configFile }}"
+            - name: CACHEX_HOT_RELOAD_CHECK_INTERVAL
+              value: "{{ .Values.hotReload.checkInterval }}"
+            
+            # Namespace configurations
+            {{- range $namespace, $config := .Values.namespaces }}
+            - name: CACHEX_NAMESPACE_{{ $namespace | upper }}_TTL
+              value: "{{ $config.defaultTTL }}"
+            - name: CACHEX_NAMESPACE_{{ $namespace | upper }}_MAX_SIZE
+              value: "{{ $config.maxSize }}"
+            - name: CACHEX_NAMESPACE_{{ $namespace | upper }}_MAX_MEMORY
+              value: "{{ $config.maxMemory }}"
+            {{- end }}
+      {{- with .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ . }}
+      {{- end }}

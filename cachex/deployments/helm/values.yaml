@@ -1,0 +1,473 @@
+# Default values for go-cachex
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  # Global image registry
+  imageRegistry: ""
+  # Global image pull secrets
+  imagePullSecrets: []
+  # Global storage class
+  storageClass: ""
+  # Global annotations
+  annotations: {}
+  # Global labels
+  labels: {}
+
+# Image configuration
+image:
+  registry: docker.io
+  repository: seasbee/go-cachex
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# Image pull secrets
+imagePullSecrets: []
+
+# Service account configuration
+serviceAccount:
+  # Create service account
+  create: true
+  # Service account name
+  name: ""
+  # Service account annotations
+  annotations: {}
+  # Automount API credentials
+  automountServiceAccountToken: true
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsNonRoot: true
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  labels: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: cachex.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Redis configuration
+redis:
+  # Use external Redis
+  external:
+    enabled: false
+    host: "redis.example.com"
+    port: 6379
+    password: ""
+    database: 0
+    tls:
+      enabled: false
+      insecureSkipVerify: false
+  
+  # Deploy Redis with the chart
+  internal:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: redis
+      tag: "7-alpine"
+      pullPolicy: IfNotPresent
+    
+    # Redis configuration
+    config:
+      maxmemory: "256mb"
+      maxmemoryPolicy: "allkeys-lru"
+      save: "900 1 300 10 60 10000"
+    
+    # Redis resources
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+    
+    # Redis persistence
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClass: ""
+      accessMode: ReadWriteOnce
+    
+    # Redis service
+    service:
+      type: ClusterIP
+      port: 6379
+    
+    # Redis security
+    security:
+      password: ""
+      existingSecret: ""
+      secretKey: "redis-password"
+
+# Cache configuration
+cache:
+  # Default TTL
+  defaultTTL: "5m"
+  
+  # Circuit breaker configuration
+  circuitBreaker:
+    threshold: 5
+    timeout: "30s"
+    halfOpenMax: 3
+  
+  # Rate limiting
+  rateLimit:
+    requestsPerSecond: 1000
+    burst: 100
+  
+  # Retry configuration
+  retry:
+    maxRetries: 3
+    initialDelay: "100ms"
+    maxDelay: "1s"
+    multiplier: 2.0
+    jitter: true
+  
+  # Features
+  features:
+    refreshAhead: true
+    negativeCaching: true
+    bloomFilter: true
+    deadLetterQueue: true
+    pubSubInvalidation: true
+    circuitBreaker: true
+    rateLimiting: true
+    encryption: false
+    compression: false
+    observability: true
+    tagging: true
+
+# Pool configuration
+pool:
+  # Worker pool
+  workerPool:
+    minWorkers: 5
+    maxWorkers: 20
+    queueSize: 1000
+    idleTimeout: "30s"
+    enableMetrics: true
+  
+  # Pipeline
+  pipeline:
+    batchSize: 100
+    maxConcurrent: 10
+    batchTimeout: "100ms"
+    enableMetrics: true
+
+# Security configuration
+security:
+  # Encryption key
+  encryptionKey: ""
+  # Redact logs
+  redactLogs: true
+  # Enable TLS
+  enableTLS: false
+  # Insecure skip verify
+  insecureSkipVerify: false
+  # Max key length
+  maxKeyLength: 256
+  # Max value size
+  maxValueSize: 1048576 # 1MB
+  # Secrets prefix
+  secretsPrefix: "VAULT_"
+
+# Observability configuration
+observability:
+  # Enable metrics
+  enableMetrics: true
+  # Enable tracing
+  enableTracing: true
+  # Enable logging
+  enableLogging: true
+  # Service name
+  serviceName: "cachex"
+  # Service version
+  serviceVersion: "1.0.0"
+  # Environment
+  environment: "production"
+  
+  # Metrics configuration
+  metrics:
+    port: 8080
+    path: "/metrics"
+    enabled: true
+  
+  # Tracing configuration
+  tracing:
+    endpoint: ""
+    sampler:
+      type: "probabilistic"
+      param: 0.1
+
+# Pub/Sub configuration
+pubsub:
+  enabled: true
+  invalidationChannel: "cachex:invalidation"
+  healthChannel: "cachex:health"
+  maxSubscribers: 100
+  messageTimeout: "5s"
+
+# Hot reload configuration
+hotReload:
+  enabled: false
+  configFile: "/etc/cachex/config.yaml"
+  checkInterval: "30s"
+  signalReload: true
+
+# Namespaces configuration
+namespaces:
+  user:
+    defaultTTL: "30m"
+    maxSize: 10000
+    maxMemory: 1073741824 # 1GB
+  product:
+    defaultTTL: "1h"
+    maxSize: 5000
+    maxMemory: 536870912 # 512MB
+  session:
+    defaultTTL: "24h"
+    maxSize: 1000
+    maxMemory: 134217728 # 128MB
+
+# Deployment configuration
+deployment:
+  # Replicas
+  replicas: 1
+  
+  # Strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  
+  # Pod template
+  podTemplate:
+    annotations: {}
+    labels: {}
+    
+    # Pod affinity
+    affinity: {}
+    
+    # Pod anti-affinity
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - go-cachex
+            topologyKey: kubernetes.io/hostname
+    
+    # Node selector
+    nodeSelector: {}
+    
+    # Tolerations
+    tolerations: []
+
+# Resources configuration
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Liveness probe
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+  httpGet:
+    path: /health
+    port: 8080
+
+# Readiness probe
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+  httpGet:
+    path: /ready
+    port: 8080
+
+# Startup probe
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+  successThreshold: 1
+  httpGet:
+    path: /health
+    port: 8080
+
+# ConfigMap configuration
+configMap:
+  enabled: true
+  name: ""
+  data: {}
+
+# Secret configuration
+secret:
+  enabled: false
+  name: ""
+  data: {}
+
+# Volume mounts
+volumeMounts: []
+
+# Volumes
+volumes: []
+
+# Environment variables
+env: []
+
+# Command override
+command: []
+
+# Args override
+args: []
+
+# Termination grace period
+terminationGracePeriodSeconds: 30
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: 1
+
+# Horizontal pod autoscaler
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+  behavior: {}
+
+# Vertical pod autoscaler
+vpa:
+  enabled: false
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        minAllowed:
+          cpu: 100m
+          memory: 50Mi
+        maxAllowed:
+          cpu: 1
+          memory: 500Mi
+        controlledValues: RequestsAndLimits
+
+# Network policy
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+
+# Service monitor (Prometheus)
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  port: "http"
+  labels: {}
+  annotations: {}
+
+# Pod monitor (Prometheus)
+podMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  port: "http"
+  labels: {}
+  annotations: {}
+
+# Grafana dashboard
+grafanaDashboard:
+  enabled: false
+  name: "go-cachex"
+  namespace: "monitoring"
+  labels: {}
+  annotations: {}
+  dashboard: {}
+
+# RBAC configuration
+rbac:
+  create: true
+  rules: []
+
+# Cluster role
+clusterRole:
+  create: false
+  rules: []
+
+# Cluster role binding
+clusterRoleBinding:
+  create: false
+  roleRef: {}
+
+# Priority class
+priorityClassName: ""
+
+# Pod security standards
+podSecurityStandards:
+  enabled: false
+  level: "restricted"
+  version: "latest"
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
