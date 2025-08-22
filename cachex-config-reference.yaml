@@ -1,0 +1,344 @@
+# CacheX Configuration Reference
+# This file contains all available configuration options for the go-cachex library
+# Only ONE store type can be configured at a time: memory, redis, ristretto, or layered
+
+# =============================================================================
+# GENERAL CACHE SETTINGS
+# =============================================================================
+
+# Default TTL for cache items (when not specified in operations)
+default_ttl: 5m
+
+# Maximum number of retries for failed operations
+max_retries: 3
+
+# Delay between retries (exponential backoff will be applied)
+retry_delay: 100ms
+
+# Serialization codec: "json" or "msgpack"
+codec: "json"
+
+# =============================================================================
+# STORE CONFIGURATIONS (Choose ONE only)
+# =============================================================================
+
+# =============================================================================
+# MEMORY STORE CONFIGURATION
+# =============================================================================
+memory:
+  # Maximum number of items in cache
+  max_size: 10000
+  
+  # Maximum memory usage in MB (approximate)
+  max_memory_mb: 100
+  
+  # Default TTL for items
+  default_ttl: 5m
+  
+  # How often to run cleanup of expired items
+  cleanup_interval: 1m
+  
+  # Eviction policy: "lru", "lfu", or "ttl"
+  eviction_policy: "lru"
+  
+  # Enable detailed statistics
+  enable_stats: true
+
+# =============================================================================
+# REDIS STORE CONFIGURATION
+# =============================================================================
+redis:
+  # Redis connection settings
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  
+  # TLS configuration
+  tls:
+    enabled: false
+    insecure_skip_verify: false
+  
+  # Connection pool settings
+  pool_size: 10
+  min_idle_conns: 5
+  max_retries: 3
+  
+  # Timeout settings
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+  
+  # Performance settings
+  enable_pipelining: true
+  enable_metrics: true
+
+# =============================================================================
+# ASYNC REDIS STORE CONFIGURATION
+# =============================================================================
+async_redis:
+  # Inherits all Redis settings above
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  
+  # Async operation settings
+  enable_async_operations: true
+  max_concurrent_ops: 20
+  operation_queue_size: 1000
+  async_timeout: 5s
+  
+  # Batching settings
+  enable_batching: true
+  batch_size: 100
+  batch_timeout: 100ms
+
+# =============================================================================
+# RISTRETTO STORE CONFIGURATION
+# =============================================================================
+ristretto:
+  # Maximum number of items in cache
+  max_items: 10000
+  
+  # Maximum memory usage in bytes
+  max_memory_bytes: 104857600  # 100MB
+  
+  # Default TTL for items
+  default_ttl: 5m
+  
+  # Number of counters (should be 10x the number of items)
+  num_counters: 100000
+  
+  # Buffer size for items
+  buffer_items: 64
+  
+  # Enable metrics
+  enable_metrics: true
+  
+  # Enable statistics
+  enable_stats: true
+
+# =============================================================================
+# LAYERED STORE CONFIGURATION
+# =============================================================================
+layered:
+  # Memory store configuration for L1 cache
+  memory_config:
+    max_size: 10000
+    max_memory_mb: 100
+    default_ttl: 5m
+    cleanup_interval: 1m
+    eviction_policy: "lru"
+    enable_stats: true
+  
+  # Layering behavior
+  write_policy: "through"  # "through", "behind", or "around"
+  read_policy: "through"   # "through", "aside", or "around"
+  sync_interval: 5m
+  
+  # Performance tuning
+  max_concurrent_sync: 10
+  enable_stats: true
+
+# =============================================================================
+# OBSERVABILITY CONFIGURATION
+# =============================================================================
+observability:
+  # Enable Prometheus metrics
+  enable_metrics: true
+  
+  # Enable OpenTelemetry tracing
+  enable_tracing: true
+  
+  # Enable structured logging
+  enable_logging: true
+  
+  # Service information for observability
+  service_name: "cachex"
+  service_version: "1.0.0"
+  environment: "production"
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+security:
+  # Input validation settings
+  validation:
+    # Maximum key length
+    max_key_length: 256
+    
+    # Maximum value size in bytes
+    max_value_size: 1048576  # 1MB
+    
+    # Allowed key patterns (regex)
+    allowed_patterns:
+      - "^[a-zA-Z0-9:_-]+$"
+    
+    # Blocked key patterns (regex)
+    blocked_patterns:
+      - "^\.\./"           # Path traversal
+      - "[<>\"'&]"         # HTML/XML injection
+      - "javascript:"      # XSS
+      - "data:text/html"   # XSS
+  
+  # Log redaction patterns (regex)
+  redaction_patterns:
+    - "password[\"\\s]*[:=][\"\\s]*[\"']?[^\"'\\s]+[\"']?"  # Passwords
+    - "token[\"\\s]*[:=][\"\\s]*[\"']?[^\"'\\s]+[\"']?"     # Tokens
+    - "key[\"\\s]*[:=][\"\\s]*[\"']?[^\"'\\s]+[\"']?"       # Keys
+    - "secret[\"\\s]*[:=][\"\\s]*[\"']?[^\"'\\s]+[\"']?"    # Secrets
+  
+  # Replacement text for redacted content
+  redaction_replacement: "[REDACTED]"
+  
+  # Prefix for secrets in environment variables
+  secrets_prefix: "VAULT_"
+
+# =============================================================================
+# TAGGING CONFIGURATION
+# =============================================================================
+tagging:
+  # Enable persistence of tag mappings
+  enable_persistence: true
+  
+  # TTL for tag mappings
+  tag_mapping_ttl: 24h
+  
+  # Batch size for tag operations
+  batch_size: 100
+  
+  # Enable statistics
+  enable_stats: true
+
+# =============================================================================
+# REFRESH AHEAD CONFIGURATION
+# =============================================================================
+refresh_ahead:
+  # Enable refresh-ahead functionality
+  enabled: true
+  
+  # Default refresh before TTL
+  default_refresh_before: 1m
+  
+  # Maximum concurrent refresh operations
+  max_concurrent_refreshes: 10
+  
+  # Refresh interval for background scanning
+  refresh_interval: 30s
+  
+  # Enable distributed locking
+  enable_distributed_lock: true
+  
+  # Lock timeout for refresh operations
+  lock_timeout: 30s
+  
+  # Enable metrics
+  enable_metrics: true
+
+# =============================================================================
+# GORM INTEGRATION CONFIGURATION
+# =============================================================================
+gorm:
+  # Enable automatic cache invalidation
+  enable_invalidation: true
+  
+  # Enable read-through caching
+  enable_read_through: true
+  
+  # Default TTL for cached items
+  default_ttl: 5m
+  
+  # Enable query result caching
+  enable_query_cache: true
+  
+  # Cache key prefix
+  key_prefix: "gorm"
+  
+  # Enable debug logging
+  enable_debug: false
+  
+  # Batch invalidation size
+  batch_size: 100
+
+# =============================================================================
+# EXAMPLE CONFIGURATIONS
+# =============================================================================
+
+# Example 1: Simple Memory Cache
+# Uncomment and use this for basic in-memory caching
+# memory:
+#   max_size: 1000
+#   max_memory_mb: 50
+#   default_ttl: 10m
+#   eviction_policy: "lru"
+
+# Example 2: High-Performance Redis Cache
+# Uncomment and use this for production Redis caching
+# redis:
+#   addr: "redis-cluster:6379"
+#   password: "your-redis-password"
+#   pool_size: 50
+#   enable_pipelining: true
+#   tls:
+#     enabled: true
+#     insecure_skip_verify: false
+
+# Example 3: Layered Cache (Memory + Redis)
+# Uncomment and use this for multi-tier caching
+# layered:
+#   memory_config:
+#     max_size: 5000
+#     max_memory_mb: 100
+#     default_ttl: 2m
+#   write_policy: "behind"
+#   read_policy: "through"
+#   sync_interval: 1m
+
+# Example 4: Secure Cache with Validation
+# Uncomment and use this for security-sensitive applications
+# security:
+#   validation:
+#     max_key_length: 128
+#     max_value_size: 524288  # 512KB
+#     allowed_patterns:
+#       - "^user:[0-9]+$"
+#       - "^session:[a-zA-Z0-9]+$"
+#     blocked_patterns:
+#       - "^admin:"
+#       - "javascript:"
+#       - "data:text/html"
+
+# =============================================================================
+# ENVIRONMENT VARIABLE OVERRIDES
+# =============================================================================
+# The following environment variables can override YAML settings:
+
+# CACHEX_STORE_TYPE=memory|redis|ristretto|layered
+# CACHEX_DEFAULT_TTL=5m
+# CACHEX_MAX_RETRIES=3
+# CACHEX_RETRY_DELAY=100ms
+# CACHEX_CODEC=json|msgpack
+
+# Memory Store:
+# CACHEX_MEMORY_MAX_SIZE=10000
+# CACHEX_MEMORY_MAX_MEMORY_MB=100
+# CACHEX_MEMORY_DEFAULT_TTL=5m
+# CACHEX_MEMORY_EVICTION_POLICY=lru
+
+# Redis Store:
+# CACHEX_REDIS_ADDR=localhost:6379
+# CACHEX_REDIS_PASSWORD=your-password
+# CACHEX_REDIS_DB=0
+# CACHEX_REDIS_POOL_SIZE=10
+# CACHEX_REDIS_TLS_ENABLED=false
+
+# Security:
+# CACHEX_SECURITY_MAX_KEY_LENGTH=256
+# CACHEX_SECURITY_MAX_VALUE_SIZE=1048576
+# CACHEX_SECURITY_REDACTION_REPLACEMENT=[REDACTED]
+
+# Observability:
+# CACHEX_OBSERVABILITY_ENABLE_METRICS=true
+# CACHEX_OBSERVABILITY_ENABLE_TRACING=true
+# CACHEX_OBSERVABILITY_ENABLE_LOGGING=true
+# CACHEX_OBSERVABILITY_SERVICE_NAME=cachex
+# CACHEX_OBSERVABILITY_ENVIRONMENT=production

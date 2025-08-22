@@ -1,0 +1,119 @@
+# CacheX Example Configuration
+# Copy this file and modify it according to your needs
+
+# =============================================================================
+# BASIC CONFIGURATION
+# =============================================================================
+
+# Default TTL for cache items
+default_ttl: 10m
+
+# Serialization codec (json or msgpack)
+codec: "json"
+
+# =============================================================================
+# STORE CONFIGURATION (Choose ONE)
+# =============================================================================
+
+# Option 1: Simple Memory Cache (for development/testing)
+memory:
+  max_size: 1000
+  max_memory_mb: 50
+  default_ttl: 5m
+  eviction_policy: "lru"
+  enable_stats: true
+
+# Option 2: Redis Cache (for production)
+# Uncomment and configure for Redis
+# redis:
+#   addr: "localhost:6379"
+#   password: ""
+#   db: 0
+#   pool_size: 10
+#   enable_pipelining: true
+#   tls:
+#     enabled: false
+
+# Option 3: High-Performance Ristretto Cache
+# Uncomment and configure for Ristretto
+# ristretto:
+#   max_items: 10000
+#   max_memory_bytes: 104857600  # 100MB
+#   default_ttl: 5m
+#   num_counters: 100000
+#   buffer_items: 64
+#   enable_stats: true
+
+# Option 4: Layered Cache (Memory + Redis)
+# Uncomment and configure for multi-tier caching
+# layered:
+#   memory_config:
+#     max_size: 5000
+#     max_memory_mb: 100
+#     default_ttl: 2m
+#     eviction_policy: "lru"
+#   write_policy: "behind"
+#   read_policy: "through"
+#   sync_interval: 1m
+
+# =============================================================================
+# OBSERVABILITY (Optional)
+# =============================================================================
+
+# Enable metrics, tracing, and logging
+observability:
+  enable_metrics: true
+  enable_tracing: true
+  enable_logging: true
+  service_name: "my-app"
+  service_version: "1.0.0"
+  environment: "production"
+
+# =============================================================================
+# SECURITY (Optional)
+# =============================================================================
+
+# Input validation and security features
+security:
+  validation:
+    max_key_length: 256
+    max_value_size: 1048576  # 1MB
+    allowed_patterns:
+      - "^[a-zA-Z0-9:_-]+$"
+    blocked_patterns:
+      - "^\.\./"
+      - "[<>\"'&]"
+      - "javascript:"
+  redaction_patterns:
+    - "password[\"\\s]*[:=][\"\\s]*[\"']?[^\"'\\s]+[\"']?"
+    - "token[\"\\s]*[:=][\"\\s]*[\"']?[^\"'\\s]+[\"']?"
+  redaction_replacement: "[REDACTED]"
+
+# =============================================================================
+# ADVANCED FEATURES (Optional)
+# =============================================================================
+
+# Tagging support
+# tagging:
+#   enable_persistence: true
+#   tag_mapping_ttl: 24h
+#   batch_size: 100
+#   enable_stats: true
+
+# Refresh-ahead caching
+# refresh_ahead:
+#   enabled: true
+#   default_refresh_before: 1m
+#   max_concurrent_refreshes: 10
+#   refresh_interval: 30s
+#   enable_distributed_lock: true
+#   lock_timeout: 30s
+
+# GORM integration
+# gorm:
+#   enable_invalidation: true
+#   enable_read_through: true
+#   default_ttl: 5m
+#   enable_query_cache: true
+#   key_prefix: "gorm"
+#   batch_size: 100

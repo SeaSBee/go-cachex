@@ -1,0 +1,63 @@
+# Ristretto Store Configuration Example
+ristretto:
+  max_items: 10000
+  max_memory_bytes: 104857600  # 100MB
+  default_ttl: 5m
+  cost_function: default
+  enable_stats: true
+
+# General cache settings
+default_ttl: 5m
+max_retries: 3
+retry_delay: 100ms
+
+# Codec settings
+codec: json
+
+# Observability settings
+observability:
+  enable_metrics: true
+  enable_tracing: true
+  enable_logging: true
+
+# Security settings
+security:
+  validation:
+    max_key_length: 256
+    max_value_size: 1048576  # 1MB
+    blocked_patterns:
+      - "^\.\./"
+      - "[<>\"'&]"
+      - "javascript:"
+      - "data:text/html"
+  redaction_patterns:
+    - '"password"\s*:\s*"[^"]*"'
+    - '"token"\s*:\s*"[^"]*"'
+    - '"key"\s*:\s*"[^"]*"'
+    - '"secret"\s*:\s*"[^"]*"'
+  redaction_replacement: "[REDACTED]"
+  secrets_prefix: "VAULT_"
+
+# Tagging settings
+tagging:
+  enable_persistence: true
+  tag_mapping_ttl: 24h
+  batch_size: 100
+  enable_stats: true
+
+# Refresh ahead settings
+refresh_ahead:
+  enabled: true
+  refresh_interval: 30s
+  default_refresh_before: 2m
+  enable_metrics: false
+
+# GORM integration settings
+gorm:
+  enable_invalidation: true
+  enable_read_through: true
+  default_ttl: 5m
+  enable_query_cache: true
+  key_prefix: "gorm"
+  enable_debug: false
+  batch_size: 100

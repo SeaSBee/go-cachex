@@ -1,0 +1,166 @@
+# CacheX Comprehensive Configuration Example
+# This file demonstrates all available configuration options
+
+# Cache Store Configuration (only one can be active)
+memory:
+  max_size: 10000                    # Maximum number of items in cache
+  max_memory_mb: 512                 # Maximum memory usage in MB
+  default_ttl: 30m                   # Default TTL for cached items
+  cleanup_interval: 5m               # Interval for cleanup operations
+  eviction_policy: "lru"             # Eviction policy: lru, lfu, ttl
+  enable_stats: true                 # Enable statistics collection
+
+# Redis store configuration (commented out - only one store allowed)
+# redis:
+#   addr: "localhost:6379"           # Redis server address
+#   password: ""                     # Redis password (if required)
+#   db: 0                           # Redis database number
+#   tls:
+#     enabled: false                 # Enable TLS connection
+#     insecure_skip_verify: false    # Skip TLS certificate verification
+#   pool_size: 10                   # Connection pool size
+#   min_idle_conns: 5               # Minimum idle connections
+#   max_retries: 3                  # Maximum retry attempts
+#   dial_timeout: 5s                # Connection dial timeout
+#   read_timeout: 3s                # Read operation timeout
+#   write_timeout: 3s               # Write operation timeout
+#   enable_pipelining: true         # Enable Redis pipelining
+#   enable_metrics: true            # Enable Redis metrics
+
+# Ristretto store configuration (commented out - only one store allowed)
+# ristretto:
+#   max_items: 10000                # Maximum number of items
+#   max_memory_bytes: 536870912     # Maximum memory in bytes (512MB)
+#   default_ttl: 30m                # Default TTL for items
+#   num_counters: 100000            # Number of counters for eviction
+#   buffer_items: 64                # Buffer size for items
+#   cost_function: "default"        # Cost function: default, custom
+#   enable_metrics: true            # Enable Ristretto metrics
+
+# Layered store configuration (commented out - only one store allowed)
+# layered:
+#   read_policy: "through"          # Read policy: through, aside, around
+#   write_policy: "through"         # Write policy: through, behind, around
+#   sync_interval: 1m               # Sync interval between layers
+#   l1_ttl: 5m                     # L1 cache TTL
+#   l2_ttl: 30m                    # L2 cache TTL
+#   enable_stats: true              # Enable layered cache stats
+
+# General Cache Settings
+default_ttl: 30m                    # Default TTL for all cache operations
+max_retries: 3                      # Maximum retry attempts for operations
+retry_delay: 100ms                  # Delay between retry attempts
+codec: "json"                       # Serialization codec: json, msgpack
+
+# Observability Configuration
+observability:
+  enable_metrics: true              # Enable Prometheus metrics
+  enable_tracing: true              # Enable OpenTelemetry tracing
+  enable_logging: true              # Enable structured logging
+  service_name: "cachex"            # Service name for tracing
+  service_version: "1.0.0"          # Service version
+  environment: "production"         # Environment name
+
+# Security Configuration
+security:
+  validation:
+    max_key_length: 256             # Maximum key length
+    max_value_size: 1048576         # Maximum value size in bytes (1MB)
+    allowed_patterns:               # Allowed key patterns (regex)
+      - "^[a-zA-Z0-9_-]+$"
+    blocked_patterns:               # Blocked key patterns (regex)
+      - "^(admin|root|system)"
+      - ".*password.*"
+      - ".*secret.*"
+  redaction_patterns:               # Redaction patterns
+    - "(?i)password\\s*=\\s*[^\\s]+"
+    - "(?i)secret\\s*=\\s*[^\\s]+"
+    - "(?i)token\\s*=\\s*[^\\s]+"
+  redaction_replacement: "***REDACTED***"
+  secrets_prefix: "cachex_secret_"
+
+# Tagging Configuration
+tagging:
+  enable_persistence: true          # Enable tag persistence
+  tag_mapping_ttl: 1h              # TTL for tag mappings
+  batch_size: 100                  # Batch size for operations
+  enable_stats: true               # Enable tagging statistics
+
+# Refresh Ahead Configuration
+refresh_ahead:
+  enabled: true                    # Enable refresh ahead functionality
+  refresh_interval: 30s            # Refresh interval
+  default_refresh_before: 5m       # Default refresh before TTL
+  max_concurrent_refreshes: 10     # Maximum concurrent refreshes
+  enable_distributed_lock: true    # Enable distributed locking for refreshes
+  lock_timeout: 30s                # Lock timeout for refresh operations
+  enable_metrics: true             # Enable refresh metrics
+
+# GORM Integration Configuration
+gorm:
+  enable_invalidation: true        # Enable automatic cache invalidation
+  enable_read_through: true        # Enable read-through caching
+  default_ttl: 15m                 # Default TTL for GORM queries
+  enable_query_cache: true         # Enable query result caching
+  key_prefix: "gorm:"              # Key prefix for GORM cache keys
+  enable_debug: false              # Enable debug logging
+  batch_size: 50                   # Batch size for operations
+
+# Environment Variable Overrides
+# The following environment variables can override the above settings:
+# 
+# Store Type:
+#   CACHEX_STORE_TYPE=memory|redis|ristretto|layered
+#
+# Memory Store:
+#   CACHEX_MEMORY_MAX_SIZE=10000
+#   CACHEX_MEMORY_MAX_MEMORY_MB=512
+#   CACHEX_MEMORY_DEFAULT_TTL=30m
+#   CACHEX_MEMORY_CLEANUP_INTERVAL=5m
+#   CACHEX_MEMORY_EVICTION_POLICY=lru
+#
+# Redis Store:
+#   CACHEX_REDIS_ADDR=localhost:6379
+#   CACHEX_REDIS_PASSWORD=your_password
+#   CACHEX_REDIS_DB=0
+#   CACHEX_REDIS_POOL_SIZE=10
+#   CACHEX_REDIS_DIAL_TIMEOUT=5s
+#   CACHEX_REDIS_READ_TIMEOUT=3s
+#   CACHEX_REDIS_WRITE_TIMEOUT=3s
+#   CACHEX_REDIS_TLS_ENABLED=false
+#
+# Ristretto Store:
+#   CACHEX_RISTRETTO_MAX_ITEMS=10000
+#   CACHEX_RISTRETTO_MAX_MEMORY_BYTES=536870912
+#   CACHEX_RISTRETTO_DEFAULT_TTL=30m
+#
+# Layered Store:
+#   CACHEX_LAYERED_READ_POLICY=through
+#   CACHEX_LAYERED_WRITE_POLICY=through
+#
+# General Settings:
+#   CACHEX_DEFAULT_TTL=30m
+#   CACHEX_MAX_RETRIES=3
+#   CACHEX_RETRY_DELAY=100ms
+#   CACHEX_CODEC=json
+#
+# Observability:
+#   CACHEX_OBSERVABILITY_ENABLE_METRICS=true
+#   CACHEX_OBSERVABILITY_ENABLE_TRACING=true
+#   CACHEX_OBSERVABILITY_ENABLE_LOGGING=true
+#
+# Security:
+#   CACHEX_SECURITY_MAX_KEY_LENGTH=256
+#   CACHEX_SECURITY_MAX_VALUE_SIZE=1048576
+#
+# Tagging:
+#   CACHEX_TAGGING_ENABLE_PERSISTENCE=true
+#   CACHEX_TAGGING_TAG_MAPPING_TTL=1h
+#
+# Refresh Ahead:
+#   CACHEX_REFRESH_AHEAD_ENABLED=true
+#   CACHEX_REFRESH_AHEAD_REFRESH_INTERVAL=30s
+#
+# GORM:
+#   CACHEX_GORM_ENABLE_READ_THROUGH=true
+#   CACHEX_GORM_ENABLE_INVALIDATION=true
