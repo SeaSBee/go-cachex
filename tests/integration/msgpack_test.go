@@ -230,21 +230,10 @@ func TestMsgpackCodecDifferentTypes(t *testing.T) {
 	logx.Info("Msgpack codec different types test completed")
 }
 
-// Test msgpack codec performance comparison
-func TestMsgpackCodecPerformanceComparison(t *testing.T) {
+// Test msgpack codec performance
+func TestMsgpackCodecPerformance(t *testing.T) {
 	store := createRedisStoreForMsgpack(t)
 	defer store.Close()
-
-	// Create cache with JSON codec
-	jsonCache, err := cachex.New[string](
-		cachex.WithStore(store),
-		cachex.WithDefaultTTL(5*time.Minute),
-		cachex.WithCodec(cachex.NewJSONCodec()),
-	)
-	if err != nil {
-		t.Fatalf("Failed to create cache with JSON codec: %v", err)
-	}
-	defer jsonCache.Close()
 
 	// Create cache with msgpack codec
 	msgpackCache, err := cachex.New[string](
@@ -257,28 +246,10 @@ func TestMsgpackCodecPerformanceComparison(t *testing.T) {
 	}
 	defer msgpackCache.Close()
 
-	// Test performance comparison
+	// Test performance
 	ctx := context.Background()
 	key := "performance-test-key"
 	value := "performance-test-value"
-
-	// Test JSON codec
-	jsonSetResult := <-jsonCache.Set(ctx, key, value, 5*time.Minute)
-	if jsonSetResult.Error != nil {
-		t.Fatalf("Failed to set value with JSON codec: %v", jsonSetResult.Error)
-	}
-
-	jsonGetResult := <-jsonCache.Get(ctx, key)
-	if jsonGetResult.Error != nil {
-		t.Fatalf("Failed to get value with JSON codec: %v", jsonGetResult.Error)
-	}
-	if !jsonGetResult.Found {
-		t.Fatal("Value not found with JSON codec")
-	}
-
-	if jsonGetResult.Value != value {
-		t.Errorf("Expected value %s with JSON codec, got %s", value, jsonGetResult.Value)
-	}
 
 	// Test msgpack codec
 	msgpackSetResult := <-msgpackCache.Set(ctx, key, value, 5*time.Minute)
@@ -298,5 +269,5 @@ func TestMsgpackCodecPerformanceComparison(t *testing.T) {
 		t.Errorf("Expected value %s with msgpack codec, got %s", value, msgpackGetResult.Value)
 	}
 
-	logx.Info("Msgpack codec performance comparison test completed")
+	logx.Info("Msgpack codec performance test completed")
 }

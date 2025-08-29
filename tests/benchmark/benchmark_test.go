@@ -31,9 +31,19 @@ type Product struct {
 // Helper functions
 func createRedisStore() cachex.Store {
 	store, err := cachex.NewRedisStore(&cachex.RedisConfig{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
+		Addr:                "localhost:6379",
+		Password:            "",
+		DB:                  0,
+		PoolSize:            10,
+		MinIdleConns:        5,
+		MaxRetries:          3,
+		DialTimeout:         5 * time.Second,
+		ReadTimeout:         3 * time.Second,
+		WriteTimeout:        3 * time.Second,
+		EnablePipelining:    true,
+		EnableMetrics:       true,
+		HealthCheckInterval: 30 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create Redis store: %v", err))
@@ -44,7 +54,11 @@ func createRedisStore() cachex.Store {
 func createMemoryStore() cachex.Store {
 	store, err := cachex.NewMemoryStore(&cachex.MemoryConfig{
 		MaxSize:         10000,
+		MaxMemoryMB:     100,
+		DefaultTTL:      5 * time.Minute,
 		CleanupInterval: 1 * time.Minute,
+		EvictionPolicy:  cachex.EvictionPolicyLRU,
+		EnableStats:     true,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create Memory store: %v", err))
@@ -54,10 +68,15 @@ func createMemoryStore() cachex.Store {
 
 func createRistrettoStore() cachex.Store {
 	store, err := cachex.NewRistrettoStore(&cachex.RistrettoConfig{
+		MaxItems:       100000,
 		MaxMemoryBytes: 100 * 1024 * 1024, // 100MB
+		DefaultTTL:     5 * time.Minute,
 		NumCounters:    1000000,
 		BufferItems:    64,
 		CostFunction:   cachex.DefaultRistrettoConfig().CostFunction,
+		EnableMetrics:  true,
+		EnableStats:    true,
+		BatchSize:      20,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create Ristretto store: %v", err))
@@ -71,7 +90,11 @@ func createLayeredStore() cachex.Store {
 	store, err := cachex.NewLayeredStore(l2Store, &cachex.LayeredConfig{
 		MemoryConfig: &cachex.MemoryConfig{
 			MaxSize:         10000,
+			MaxMemoryMB:     100,
+			DefaultTTL:      5 * time.Minute,
 			CleanupInterval: 1 * time.Minute,
+			EvictionPolicy:  cachex.EvictionPolicyLRU,
+			EnableStats:     true,
 		},
 		WritePolicy:  cachex.WritePolicyThrough,
 		ReadPolicy:   cachex.ReadPolicyThrough,
@@ -530,7 +553,10 @@ func BenchmarkTaggingAddTags(b *testing.B) {
 	store := createRedisStore()
 	defer store.Close()
 
-	tagManager := cachex.NewTagManager(store, cachex.DefaultTagConfig())
+	tagManager, err := cachex.NewTagManager(store, cachex.DefaultTagConfig())
+	if err != nil {
+		b.Fatalf("Failed to create tag manager: %v", err)
+	}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -551,7 +577,10 @@ func BenchmarkTaggingGetKeysByTag(b *testing.B) {
 	store := createRedisStore()
 	defer store.Close()
 
-	tagManager := cachex.NewTagManager(store, cachex.DefaultTagConfig())
+	tagManager, err := cachex.NewTagManager(store, cachex.DefaultTagConfig())
+	if err != nil {
+		b.Fatalf("Failed to create tag manager: %v", err)
+	}
 
 	// Pre-populate tags
 	for i := 0; i < 1000; i++ {
@@ -899,7 +928,10 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 
 // Builder benchmarks
 func BenchmarkKeyBuilder(b *testing.B) {
-	builder := cachex.NewBuilder("test-app", "test", "secret")
+	builder, err := cachex.NewBuilder("test-app", "test", "secret")
+	if err != nil {
+		b.Fatalf("Failed to create builder: %v", err)
+	}
 	users := generateTestData(100)
 
 	b.ResetTimer()
@@ -957,19 +989,38 @@ func BenchmarkConfigCreation(b *testing.B) {
 		for pb.Next() {
 			config := &cachex.CacheConfig{
 				Redis: &cachex.RedisConfig{
-					Addr:     "localhost:6379",
-					Password: "",
-					DB:       0,
+					Addr:                "localhost:6379",
+					Password:            "",
+					DB:                  0,
+					PoolSize:            10,
+					MinIdleConns:        5,
+					MaxRetries:          3,
+					DialTimeout:         5 * time.Second,
+					ReadTimeout:         3 * time.Second,
+					WriteTimeout:        3 * time.Second,
+					EnablePipelining:    true,
+					EnableMetrics:       true,
+					HealthCheckInterval: 30 * time.Second,
+					HealthCheckTimeout:  5 * time.Second,
 				},
 				Memory: &cachex.MemoryConfig{
 					MaxSize:         10000,
+					MaxMemoryMB:     100,
+					DefaultTTL:      5 * time.Minute,
 					CleanupInterval: 1 * time.Minute,
+					EvictionPolicy:  cachex.EvictionPolicyLRU,
+					EnableStats:     true,
 				},
 				Ristretto: &cachex.RistrettoConfig{
+					MaxItems:       100000,
 					MaxMemoryBytes: 100 * 1024 * 1024,
+					DefaultTTL:     5 * time.Minute,
 					NumCounters:    1000000,
 					BufferItems:    64,
 					CostFunction:   cachex.DefaultRistrettoConfig().CostFunction,
+					EnableMetrics:  true,
+					EnableStats:    true,
+					BatchSize:      20,
 				},
 				Observability: &cachex.ObservabilityConfig{
 					EnableMetrics: true,

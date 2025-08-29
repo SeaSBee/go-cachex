@@ -112,6 +112,111 @@ func TestNewMemoryStore_WithCustomConfig(t *testing.T) {
 	}
 }
 
+func TestNewMemoryStore_WithInvalidConfig(t *testing.T) {
+	testCases := []struct {
+		name        string
+		config      *cachex.MemoryConfig
+		expectError bool
+	}{
+		{
+			name: "negative_max_size",
+			config: &cachex.MemoryConfig{
+				MaxSize:         -1,
+				MaxMemoryMB:     100,
+				DefaultTTL:      5 * time.Minute,
+				CleanupInterval: 1 * time.Minute,
+			},
+			expectError: true,
+		},
+		{
+			name: "negative_max_memory",
+			config: &cachex.MemoryConfig{
+				MaxSize:         1000,
+				MaxMemoryMB:     -1,
+				DefaultTTL:      5 * time.Minute,
+				CleanupInterval: 1 * time.Minute,
+			},
+			expectError: true,
+		},
+		{
+			name: "negative_default_ttl",
+			config: &cachex.MemoryConfig{
+				MaxSize:         1000,
+				MaxMemoryMB:     100,
+				DefaultTTL:      -5 * time.Minute,
+				CleanupInterval: 1 * time.Minute,
+			},
+			expectError: true,
+		},
+		{
+			name: "negative_cleanup_interval",
+			config: &cachex.MemoryConfig{
+				MaxSize:         1000,
+				MaxMemoryMB:     100,
+				DefaultTTL:      5 * time.Minute,
+				CleanupInterval: -1 * time.Minute,
+			},
+			expectError: true,
+		},
+		{
+			name: "zero_cleanup_interval",
+			config: &cachex.MemoryConfig{
+				MaxSize:         1000,
+				MaxMemoryMB:     100,
+				DefaultTTL:      5 * time.Minute,
+				CleanupInterval: 0,
+			},
+			expectError: true,
+		},
+		{
+			name: "invalid_eviction_policy",
+			config: &cachex.MemoryConfig{
+				MaxSize:         1000,
+				MaxMemoryMB:     100,
+				DefaultTTL:      5 * time.Minute,
+				CleanupInterval: 1 * time.Minute,
+				EvictionPolicy:  "invalid",
+			},
+			expectError: true,
+		},
+		{
+			name: "valid_config",
+			config: &cachex.MemoryConfig{
+				MaxSize:         1000,
+				MaxMemoryMB:     100,
+				DefaultTTL:      5 * time.Minute,
+				CleanupInterval: 1 * time.Minute,
+				EvictionPolicy:  cachex.EvictionPolicyLRU,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := cachex.NewMemoryStore(tc.config)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Expected error for invalid config, but got none")
+				}
+				if store != nil {
+					t.Errorf("Expected nil store for invalid config, but got store")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error for valid config, but got: %v", err)
+				}
+				if store == nil {
+					t.Errorf("Expected store for valid config, but got nil")
+				} else {
+					store.Close()
+				}
+			}
+		})
+	}
+}
+
 func TestMemoryStore_Get_Set_Success(t *testing.T) {
 	store, err := cachex.NewMemoryStore(nil)
 	if err != nil {

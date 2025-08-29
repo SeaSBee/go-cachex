@@ -1,0 +1,86 @@
+# Layered Cache Configuration Example
+# This configuration demonstrates multi-tier caching (L1: Memory, L2: Redis)
+
+layered:
+  # Memory store configuration for L1 cache
+  memory_config:
+    max_size: 10000
+    max_memory_mb: 200
+    default_ttl: 2m
+    cleanup_interval: 30s
+    eviction_policy: "lru"
+    enable_stats: true
+  
+  # L2 store configuration (Redis)
+  l2_store_config:
+    type: "redis"
+    redis:
+      addr: "localhost:6379"
+      password: ""
+      db: 0
+      pool_size: 20
+      min_idle_conns: 10
+      max_retries: 3
+      dial_timeout: 5s
+      read_timeout: 3s
+      write_timeout: 3s
+      enable_pipelining: true
+      enable_metrics: true
+      health_check_interval: 30s
+      health_check_timeout: 5s
+  
+  # Layering behavior
+  write_policy: "behind"  # Write to L1, async to L2
+  read_policy: "through"   # Read from L1, fallback to L2
+  sync_interval: 1m
+  
+  # Performance tuning
+  max_concurrent_sync: 20
+  enable_stats: true
+  
+  # Timeout configurations
+  async_operation_timeout: 30s
+  background_sync_timeout: 60s
+
+# General cache settings
+default_ttl: 5m
+max_retries: 3
+retry_delay: 100ms
+codec: json
+
+# Observability settings
+observability:
+  enable_metrics: true
+  enable_tracing: true
+  enable_logging: true
+  service_name: "cachex-layered"
+  service_version: "1.0.0"
+  environment: "production"
+  log_level: "info"
+  metrics_interval: 30s
+  trace_sampling_rate: 0.1
+
+# Memory pool settings
+memory_pool:
+  enabled: true
+  initial_size: 200
+  max_size: 2000
+  cleanup_interval: 2m
+  enable_stats: true
+
+# Allocation optimization
+allocation_optimization:
+  enabled: true
+  enable_memory_pools: true
+  enable_buffer_pooling: true
+  enable_string_optimization: true
+  enable_map_optimization: true
+  enable_value_copy_optimization: true
+
+# Validation cache
+validation_cache:
+  enabled: true
+  ttl: 1h
+  max_size: 1000
+  enable_stats: true
+  cleanup_interval: 5m

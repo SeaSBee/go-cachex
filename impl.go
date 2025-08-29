@@ -21,10 +21,10 @@ type cache[T any] struct {
 	ctx              context.Context
 	mu               sync.RWMutex
 	closed           bool
+	closedFlag       *bool
 	observability    *ObservabilityManager
 	tagManager       *TagManager
 	refreshScheduler *RefreshAheadScheduler
-	security         *SecurityManager
 }
 
 // New creates a new cache instance
@@ -50,7 +50,18 @@ func New[T any](opts ...Option) (Cache[T], error) {
 		return nil, fmt.Errorf("store is required")
 	}
 	if options.Codec == nil {
-		options.Codec = &defaultJSONCodec{}
+		// Create JSON codec with nil value configuration
+		jsonCodec := &JSONCodec{
+			AllowNilValues: options.AllowNilValues,
+			bufferPool:     GlobalPools.Buffer,
+		}
+		options.Codec = jsonCodec
+	} else {
+		// If a custom codec is provided, try to configure it for nil values
+		if jsonCodec, ok := options.Codec.(*JSONCodec); ok {
+			jsonCodec.AllowNilValues = options.AllowNilValues
+			jsonCodec.bufferPool = GlobalPools.Buffer
+		}
 	}
 	if options.KeyBuilder == nil {
 		options.KeyBuilder = &defaultKeyBuilder{}
@@ -71,10 +82,16 @@ func New[T any](opts ...Option) (Cache[T], error) {
 	obs := NewObservability(obsConfig)
 
 	// Create tag manager
-	tagManager := NewTagManager(options.Store, DefaultTagConfig())
+	tagManager, err := NewTagManager(options.Store, DefaultTagConfig())
+	if err != nil {
+		return nil, err
+	}
 
 	// Create refresh-ahead scheduler
 	refreshScheduler := NewRefreshAheadScheduler(options.Store, DefaultRefreshAheadConfig())
+
+	// Create a shared closed flag
+	closedFlag := false
 
 	c := &cache[T]{
 		store:            options.Store,
@@ -83,13 +100,22 @@ func New[T any](opts ...Option) (Cache[T], error) {
 		keyHasher:        options.KeyHasher,
 		options:          options,
 		ctx:              context.Background(),
+		closed:           false,
+		closedFlag:       &closedFlag,
 		observability:    obs,
 		tagManager:       tagManager,
 		refreshScheduler: refreshScheduler,
-		security:         options.Security,
 	}
 
 	return c, nil
+}
+
+// isClosed checks if the cache is closed
+func (c *cache[T]) isClosed() bool {
+	if c.closedFlag != nil {
+		return *c.closedFlag
+	}
+	return c.closed
 }
 
 // WithContext returns a new cache instance with the given context
@@ -107,6 +133,7 @@ func (c *cache[T]) WithContext(ctx context.Context) Cache[T] {
 		options:          c.options,
 		ctx:              ctx,
 		closed:           c.closed,
+		closedFlag:       c.closedFlag,
 		observability:    c.observability,
 		tagManager:       c.tagManager,
 		refreshScheduler: c.refreshScheduler,
@@ -122,7 +149,7 @@ func (c *cache[T]) Get(ctx context.Context, key string) <-chan AsyncCacheResult[
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -179,13 +206,6 @@ func (c *cache[T]) executeGetWithRetryAsync(ctx context.Context, key string) Asy
 
 // executeGetAsync performs the actual get operation (async)
 func (c *cache[T]) executeGetAsync(ctx context.Context, key string) AsyncCacheResult[T] {
-	// Validate key if security manager is configured
-	if c.security != nil {
-		if err := c.security.ValidateKey(key); err != nil {
-			return AsyncCacheResult[T]{Error: NewCacheError("get", key, "key validation error", err)}
-		}
-	}
-
 	// Get from store
 	storeResult := <-c.store.Get(ctx, key)
 	if storeResult.Error != nil {
@@ -213,7 +233,7 @@ func (c *cache[T]) Set(ctx context.Context, key string, val T, ttl time.Duration
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -268,31 +288,6 @@ func (c *cache[T]) executeSetAsync(ctx context.Context, key string, val T, ttl t
 		return AsyncCacheResult[T]{Error: NewCacheError("set", key, "key validation error", fmt.Errorf("key cannot be empty"))}
 	}
 
-	// Validate input if security manager is configured
-	if c.security != nil {
-		if err := c.security.ValidateKey(key); err != nil {
-			return AsyncCacheResult[T]{Error: NewCacheError("set", key, "key validation error", err)}
-		}
-
-		// Encode value for validation
-		data, err := c.codec.Encode(val)
-		if err != nil {
-			return AsyncCacheResult[T]{Error: NewCacheError("set", key, "encode error", err)}
-		}
-
-		if err := c.security.ValidateValue(data); err != nil {
-			return AsyncCacheResult[T]{Error: NewCacheError("set", key, "value validation error", err)}
-		}
-
-		// Store in cache
-		storeResult := <-c.store.Set(ctx, key, data, ttl)
-		if storeResult.Error != nil {
-			return AsyncCacheResult[T]{Error: NewCacheError("set", key, "store error", storeResult.Error)}
-		}
-
-		return AsyncCacheResult[T]{Value: val}
-	}
-
 	// Encode value
 	data, err := c.codec.Encode(val)
 	if err != nil {
@@ -321,7 +316,7 @@ func (c *cache[T]) MGet(ctx context.Context, keys ...string) <-chan AsyncCacheRe
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -337,16 +332,6 @@ func (c *cache[T]) MGet(ctx context.Context, keys ...string) <-chan AsyncCacheRe
 		defer func() {
 			c.logOperation("mget", fmt.Sprintf("%d keys", len(keys)), time.Since(start), nil)
 		}()
-
-		// Validate keys if security manager is configured
-		if c.security != nil {
-			for _, key := range keys {
-				if err := c.security.ValidateKey(key); err != nil {
-					result <- AsyncCacheResult[T]{Error: NewCacheError("mget", key, "key validation error", err)}
-					return
-				}
-			}
-		}
 
 		// Get from store
 		storeResult := <-c.store.MGet(ctx, keys...)
@@ -382,7 +367,7 @@ func (c *cache[T]) MSet(ctx context.Context, items map[string]T, ttl time.Durati
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -406,14 +391,6 @@ func (c *cache[T]) MSet(ctx context.Context, items map[string]T, ttl time.Durati
 		// Encode values
 		dataMap := make(map[string][]byte)
 		for key, value := range items {
-			// Validate key if security manager is configured
-			if c.security != nil {
-				if err := c.security.ValidateKey(key); err != nil {
-					result <- AsyncCacheResult[T]{Error: NewCacheError("mset", key, "key validation error", err)}
-					return
-				}
-			}
-
 			data, err := c.codec.Encode(value)
 			if err != nil {
 				result <- AsyncCacheResult[T]{Error: NewCacheError("mset", key, "encode error", err)}
@@ -424,14 +401,6 @@ func (c *cache[T]) MSet(ctx context.Context, items map[string]T, ttl time.Durati
 			if data == nil {
 				result <- AsyncCacheResult[T]{Error: NewCacheError("mset", key, "value validation error", fmt.Errorf("value cannot be nil"))}
 				return
-			}
-
-			// Validate value if security manager is configured
-			if c.security != nil {
-				if err := c.security.ValidateValue(data); err != nil {
-					result <- AsyncCacheResult[T]{Error: NewCacheError("mset", key, "value validation error", err)}
-					return
-				}
 			}
 
 			dataMap[key] = data
@@ -458,7 +427,7 @@ func (c *cache[T]) Del(ctx context.Context, keys ...string) <-chan AsyncCacheRes
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -474,16 +443,6 @@ func (c *cache[T]) Del(ctx context.Context, keys ...string) <-chan AsyncCacheRes
 		defer func() {
 			c.logOperation("del", fmt.Sprintf("%d keys", len(keys)), time.Since(start), nil)
 		}()
-
-		// Validate keys if security manager is configured
-		if c.security != nil {
-			for _, key := range keys {
-				if err := c.security.ValidateKey(key); err != nil {
-					result <- AsyncCacheResult[T]{Error: NewCacheError("del", key, "key validation error", err)}
-					return
-				}
-			}
-		}
 
 		// Delete from store
 		storeResult := <-c.store.Del(ctx, keys...)
@@ -513,7 +472,7 @@ func (c *cache[T]) Exists(ctx context.Context, key string) <-chan AsyncCacheResu
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -524,14 +483,6 @@ func (c *cache[T]) Exists(ctx context.Context, key string) <-chan AsyncCacheResu
 		defer func() {
 			c.logOperation("exists", key, time.Since(start), nil)
 		}()
-
-		// Validate key if security manager is configured
-		if c.security != nil {
-			if err := c.security.ValidateKey(key); err != nil {
-				result <- AsyncCacheResult[T]{Error: NewCacheError("exists", key, "key validation error", err)}
-				return
-			}
-		}
 
 		// Check in store
 		storeResult := <-c.store.Exists(ctx, key)
@@ -554,7 +505,7 @@ func (c *cache[T]) TTL(ctx context.Context, key string) <-chan AsyncCacheResult[
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -565,14 +516,6 @@ func (c *cache[T]) TTL(ctx context.Context, key string) <-chan AsyncCacheResult[
 		defer func() {
 			c.logOperation("ttl", key, time.Since(start), nil)
 		}()
-
-		// Validate key if security manager is configured
-		if c.security != nil {
-			if err := c.security.ValidateKey(key); err != nil {
-				result <- AsyncCacheResult[T]{Error: NewCacheError("ttl", key, "key validation error", err)}
-				return
-			}
-		}
 
 		// Get TTL from store
 		storeResult := <-c.store.TTL(ctx, key)
@@ -595,7 +538,7 @@ func (c *cache[T]) IncrBy(ctx context.Context, key string, delta int64, ttlIfCre
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -606,14 +549,6 @@ func (c *cache[T]) IncrBy(ctx context.Context, key string, delta int64, ttlIfCre
 		defer func() {
 			c.logOperation("incrby", key, time.Since(start), nil)
 		}()
-
-		// Validate key if security manager is configured
-		if c.security != nil {
-			if err := c.security.ValidateKey(key); err != nil {
-				result <- AsyncCacheResult[T]{Error: NewCacheError("incrby", key, "key validation error", err)}
-				return
-			}
-		}
 
 		// Increment in store
 		storeResult := <-c.store.IncrBy(ctx, key, delta, ttlIfCreate)
@@ -791,7 +726,7 @@ func (c *cache[T]) InvalidateByTag(ctx context.Context, tags ...string) <-chan A
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
@@ -821,7 +756,7 @@ func (c *cache[T]) InvalidateByTag(ctx context.Context, tags ...string) <-chan A
 		}
 
 		// Invalidate keys
-		if err := c.tagManager.InvalidateByTag(ctx, uniqueKeys); err != nil {
+		if err := c.tagManager.InvalidateByTag(ctx, uniqueKeys...); err != nil {
 			result <- AsyncCacheResult[T]{Error: NewCacheError("invalidate_by_tag", fmt.Sprintf("%v", tags), "tag manager error", err)}
 			return
 		}
@@ -843,20 +778,12 @@ func (c *cache[T]) AddTags(ctx context.Context, key string, tags ...string) <-ch
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncCacheResult[T]{Error: ErrStoreClosed}
 			return
 		}
 		c.mu.RUnlock()
-
-		// Validate key if security manager is configured
-		if c.security != nil {
-			if err := c.security.ValidateKey(key); err != nil {
-				result <- AsyncCacheResult[T]{Error: NewCacheError("add_tags", key, "key validation error", err)}
-				return
-			}
-		}
 
 		if err := c.tagManager.AddTags(ctx, key, tags...); err != nil {
 			result <- AsyncCacheResult[T]{Error: NewCacheError("add_tags", key, "tag manager error", err)}
@@ -878,20 +805,12 @@ func (c *cache[T]) TryLock(ctx context.Context, key string, ttl time.Duration) <
 		defer close(result)
 
 		c.mu.RLock()
-		if c.closed {
+		if c.isClosed() {
 			c.mu.RUnlock()
 			result <- AsyncLockResult{Error: ErrStoreClosed}
 			return
 		}
 		c.mu.RUnlock()
-
-		// Validate key if security manager is configured
-		if c.security != nil {
-			if err := c.security.ValidateKey(key); err != nil {
-				result <- AsyncLockResult{Error: NewCacheError("try_lock", key, "key validation error", err)}
-				return
-			}
-		}
 
 		lockKey := fmt.Sprintf("lock:%s", key)
 		lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -946,11 +865,14 @@ func (c *cache[T]) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.closed {
+	if c.isClosed() {
 		return nil
 	}
 
 	c.closed = true
+	if c.closedFlag != nil {
+		*c.closedFlag = true
+	}
 
 	// Close store
 	if err := c.store.Close(); err != nil {
@@ -1010,14 +932,34 @@ func (c *cache[T]) logOperation(op, key string, duration time.Duration, err erro
 type defaultJSONCodec struct{}
 
 func (c *defaultJSONCodec) Encode(v any) ([]byte, error) {
-	// Use the JSON codec from the local package
-	jsonCodec := &JSONCodec{}
+	// Use the JSON codec from the local package with proper initialization
+	jsonCodec := &JSONCodec{
+		AllowNilValues:     false,
+		EnableDebugLogging: false,
+		bufferPool:         GlobalPools.Buffer,
+	}
+
+	// Validate the codec before use
+	if err := jsonCodec.Validate(); err != nil {
+		return nil, fmt.Errorf("codec validation failed: %w", err)
+	}
+
 	return jsonCodec.Encode(v)
 }
 
 func (c *defaultJSONCodec) Decode(data []byte, v any) error {
-	// Use the JSON codec from the local package
-	jsonCodec := &JSONCodec{}
+	// Use the JSON codec from the local package with proper initialization
+	jsonCodec := &JSONCodec{
+		AllowNilValues:     false,
+		EnableDebugLogging: false,
+		bufferPool:         GlobalPools.Buffer,
+	}
+
+	// Validate the codec before use
+	if err := jsonCodec.Validate(); err != nil {
+		return fmt.Errorf("codec validation failed: %w", err)
+	}
+
 	return jsonCodec.Decode(data, v)
 }
 

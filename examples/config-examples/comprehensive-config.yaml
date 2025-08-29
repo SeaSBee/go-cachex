@@ -26,6 +26,38 @@ memory:
 #   write_timeout: 3s               # Write operation timeout
 #   enable_pipelining: true         # Enable Redis pipelining
 #   enable_metrics: true            # Enable Redis metrics
+#   health_check_interval: 30s      # Health check interval
+#   health_check_timeout: 5s        # Health check timeout
+
+# Optimized Connection Pool configuration (commented out - only one store allowed)
+# optimized_connection_pool:
+#   addr: "localhost:6379"           # Redis server address
+#   password: ""                     # Redis password (if required)
+#   db: 0                           # Redis database number
+#   tls:
+#     enabled: false                 # Enable TLS connection
+#     insecure_skip_verify: false    # Skip TLS certificate verification
+#   pool_size: 20                   # Connection pool size
+#   min_idle_conns: 10              # Minimum idle connections
+#   max_retries: 3                  # Maximum retry attempts
+#   pool_timeout: 30s               # Pool timeout
+#   idle_timeout: 5m                # Idle connection timeout
+#   idle_check_frequency: 1m        # Idle check frequency
+#   dial_timeout: 5s                # Connection dial timeout
+#   read_timeout: 3s                # Read operation timeout
+#   write_timeout: 3s               # Write operation timeout
+#   enable_pipelining: true         # Enable Redis pipelining
+#   enable_metrics: true            # Enable Redis metrics
+#   enable_connection_pool: true    # Enable connection pooling
+#   health_check_interval: 30s      # Health check interval
+#   health_check_timeout: 5s        # Health check timeout
+#   enable_connection_reuse: true   # Enable connection reuse
+#   enable_connection_warming: true # Enable connection warming
+#   connection_warming_timeout: 30s # Connection warming timeout
+#   enable_load_balancing: false    # Enable load balancing
+#   enable_circuit_breaker: false   # Enable circuit breaker
+#   enable_pool_monitoring: true    # Enable pool monitoring
+#   monitoring_interval: 1m         # Monitoring interval
 
 # Ristretto store configuration (commented out - only one store allowed)
 # ristretto:
@@ -34,17 +66,42 @@ memory:
 #   default_ttl: 30m                # Default TTL for items
 #   num_counters: 100000            # Number of counters for eviction
 #   buffer_items: 64                # Buffer size for items
-#   cost_function: "default"        # Cost function: default, custom
 #   enable_metrics: true            # Enable Ristretto metrics
+#   enable_stats: true              # Enable Ristretto statistics
+#   batch_size: 10                  # Batch size for concurrent operations
 
 # Layered store configuration (commented out - only one store allowed)
 # layered:
+#   memory_config:
+#     max_size: 10000               # L1 memory cache size
+#     max_memory_mb: 100            # L1 memory cache size in MB
+#     default_ttl: 5m               # L1 cache TTL
+#     cleanup_interval: 1m          # L1 cleanup interval
+#     eviction_policy: "lru"        # L1 eviction policy
+#     enable_stats: true            # Enable L1 statistics
+#   l2_store_config:
+#     type: "redis"                 # L2 store type: redis, ristretto, memory
+#     redis:
+#       addr: "localhost:6379"      # Redis server address
+#       password: ""                # Redis password
+#       db: 0                      # Redis database
+#       pool_size: 10              # Redis pool size
+#       enable_pipelining: true    # Enable Redis pipelining
+#     ristretto:
+#       max_items: 10000           # Ristretto max items
+#       max_memory_bytes: 104857600 # Ristretto max memory
+#       default_ttl: 5m            # Ristretto TTL
+#     memory:
+#       max_size: 5000             # Memory max size
+#       max_memory_mb: 50          # Memory max MB
+#       default_ttl: 2m            # Memory TTL
 #   read_policy: "through"          # Read policy: through, aside, around
 #   write_policy: "through"         # Write policy: through, behind, around
 #   sync_interval: 1m               # Sync interval between layers
-#   l1_ttl: 5m                     # L1 cache TTL
-#   l2_ttl: 30m                    # L2 cache TTL
+#   max_concurrent_sync: 10         # Maximum concurrent sync operations
 #   enable_stats: true              # Enable layered cache stats
+#   async_operation_timeout: 30s    # Async operation timeout
+#   background_sync_timeout: 60s    # Background sync timeout
 
 # General Cache Settings
 default_ttl: 30m                    # Default TTL for all cache operations
@@ -60,6 +117,9 @@ observability:
   service_name: "cachex"            # Service name for tracing
   service_version: "1.0.0"          # Service version
   environment: "production"         # Environment name
+  log_level: "info"                 # Log level
+  metrics_interval: 30s             # Metrics collection interval
+  trace_sampling_rate: 0.1          # Trace sampling rate (0.0 to 1.0)
 
 # Security Configuration
 security:
@@ -85,6 +145,20 @@ tagging:
   tag_mapping_ttl: 1h              # TTL for tag mappings
   batch_size: 100                  # Batch size for operations
   enable_stats: true               # Enable tagging statistics
+  load_timeout: 5s                 # Load timeout for tag mappings
+
+# Optimized Tagging Configuration
+optimized_tagging:
+  enable_persistence: true          # Enable tag persistence
+  tag_mapping_ttl: 1h              # TTL for tag mappings
+  batch_size: 200                  # Batch size for operations
+  enable_stats: true               # Enable tagging statistics
+  load_timeout: 5s                 # Load timeout for tag mappings
+  enable_background_persistence: true # Enable background persistence
+  persistence_interval: 30s        # Persistence interval for background operations
+  enable_memory_optimization: true # Enable memory optimization
+  max_memory_usage: 209715200      # Maximum memory usage for tag mappings (200MB)
+  batch_flush_interval: 5s         # Batch flush interval
 
 # Refresh Ahead Configuration
 refresh_ahead:
@@ -95,6 +169,10 @@ refresh_ahead:
   enable_distributed_lock: true    # Enable distributed locking for refreshes
   lock_timeout: 30s                # Lock timeout for refresh operations
   enable_metrics: true             # Enable refresh metrics
+  default_ttl: 5m                  # Default TTL for cache entries when TTL retrieval fails
+  unlock_timeout: 30s              # Unlock timeout for distributed lock operations
+  max_consecutive_failures: 3      # Maximum consecutive failures before task cleanup
+  max_task_age: 1h                 # Maximum task age before cleanup
 
 # GORM Integration Configuration
 gorm:
@@ -105,6 +183,31 @@ gorm:
   key_prefix: "gorm:"              # Key prefix for GORM cache keys
   enable_debug: false              # Enable debug logging
   batch_size: 50                   # Batch size for operations
+
+# Validation Cache Configuration
+validation_cache:
+  enabled: true                    # Enable validation caching
+  ttl: 1h                          # Cache TTL for validation results
+  max_size: 1000                   # Maximum cache size
+  enable_stats: true               # Enable statistics
+  cleanup_interval: 5m             # Cleanup interval
+
+# Memory Pool Configuration
+memory_pool:
+  enabled: true                    # Enable memory pools
+  initial_size: 100                # Initial pool size
+  max_size: 1000                   # Maximum pool size (0 = unlimited)
+  cleanup_interval: 5m             # Cleanup interval for unused items
+  enable_stats: true               # Enable statistics collection
+
+# Allocation Optimization Configuration
+allocation_optimization:
+  enabled: true                    # Enable allocation optimization
+  enable_memory_pools: true        # Enable memory pools
+  enable_buffer_pooling: true      # Enable buffer pooling
+  enable_string_optimization: true # Enable string optimization
+  enable_map_optimization: true    # Enable map optimization
+  enable_value_copy_optimization: true # Enable value copy optimization
 
 # Environment Variable Overrides
 # The following environment variables can override the above settings:
@@ -124,19 +227,36 @@ gorm:
 #   CACHEX_REDIS_PASSWORD=your_password
 #   CACHEX_REDIS_DB=0
 #   CACHEX_REDIS_POOL_SIZE=10
+#   CACHEX_REDIS_MIN_IDLE_CONNS=5
+#   CACHEX_REDIS_MAX_RETRIES=3
 #   CACHEX_REDIS_DIAL_TIMEOUT=5s
 #   CACHEX_REDIS_READ_TIMEOUT=3s
 #   CACHEX_REDIS_WRITE_TIMEOUT=3s
 #   CACHEX_REDIS_TLS_ENABLED=false
+#   CACHEX_REDIS_TLS_INSECURE_SKIP_VERIFY=false
+#   CACHEX_REDIS_ENABLE_PIPELINING=true
+#   CACHEX_REDIS_ENABLE_METRICS=true
+#   CACHEX_REDIS_HEALTH_CHECK_INTERVAL=30s
+#   CACHEX_REDIS_HEALTH_CHECK_TIMEOUT=5s
 #
 # Ristretto Store:
 #   CACHEX_RISTRETTO_MAX_ITEMS=10000
 #   CACHEX_RISTRETTO_MAX_MEMORY_BYTES=536870912
 #   CACHEX_RISTRETTO_DEFAULT_TTL=30m
+#   CACHEX_RISTRETTO_NUM_COUNTERS=100000
+#   CACHEX_RISTRETTO_BUFFER_ITEMS=64
+#   CACHEX_RISTRETTO_ENABLE_METRICS=true
+#   CACHEX_RISTRETTO_ENABLE_STATS=true
+#   CACHEX_RISTRETTO_BATCH_SIZE=10
 #
 # Layered Store:
 #   CACHEX_LAYERED_READ_POLICY=through
 #   CACHEX_LAYERED_WRITE_POLICY=through
+#   CACHEX_LAYERED_SYNC_INTERVAL=1m
+#   CACHEX_LAYERED_MAX_CONCURRENT_SYNC=10
+#   CACHEX_LAYERED_ENABLE_STATS=true
+#   CACHEX_LAYERED_ASYNC_OPERATION_TIMEOUT=30s
+#   CACHEX_LAYERED_BACKGROUND_SYNC_TIMEOUT=60s
 #
 # General Settings:
 #   CACHEX_DEFAULT_TTL=30m
@@ -148,6 +268,12 @@ gorm:
 #   CACHEX_OBSERVABILITY_ENABLE_METRICS=true
 #   CACHEX_OBSERVABILITY_ENABLE_TRACING=true
 #   CACHEX_OBSERVABILITY_ENABLE_LOGGING=true
+#   CACHEX_OBSERVABILITY_SERVICE_NAME=cachex
+#   CACHEX_OBSERVABILITY_SERVICE_VERSION=1.0.0
+#   CACHEX_OBSERVABILITY_ENVIRONMENT=production
+#   CACHEX_OBSERVABILITY_LOG_LEVEL=info
+#   CACHEX_OBSERVABILITY_METRICS_INTERVAL=30s
+#   CACHEX_OBSERVABILITY_TRACE_SAMPLING_RATE=0.1
 #
 # Security:
 #   CACHEX_SECURITY_MAX_KEY_LENGTH=256
@@ -156,11 +282,28 @@ gorm:
 # Tagging:
 #   CACHEX_TAGGING_ENABLE_PERSISTENCE=true
 #   CACHEX_TAGGING_TAG_MAPPING_TTL=1h
+#   CACHEX_TAGGING_BATCH_SIZE=100
+#   CACHEX_TAGGING_ENABLE_STATS=true
+#   CACHEX_TAGGING_LOAD_TIMEOUT=5s
 #
 # Refresh Ahead:
 #   CACHEX_REFRESH_AHEAD_ENABLED=true
 #   CACHEX_REFRESH_AHEAD_REFRESH_INTERVAL=30s
+#   CACHEX_REFRESH_AHEAD_DEFAULT_REFRESH_BEFORE=5m
+#   CACHEX_REFRESH_AHEAD_MAX_CONCURRENT_REFRESHES=10
+#   CACHEX_REFRESH_AHEAD_ENABLE_DISTRIBUTED_LOCK=true
+#   CACHEX_REFRESH_AHEAD_LOCK_TIMEOUT=30s
+#   CACHEX_REFRESH_AHEAD_ENABLE_METRICS=true
+#   CACHEX_REFRESH_AHEAD_DEFAULT_TTL=5m
+#   CACHEX_REFRESH_AHEAD_UNLOCK_TIMEOUT=30s
+#   CACHEX_REFRESH_AHEAD_MAX_CONSECUTIVE_FAILURES=3
+#   CACHEX_REFRESH_AHEAD_MAX_TASK_AGE=1h
 #
 # GORM:
 #   CACHEX_GORM_ENABLE_READ_THROUGH=true
 #   CACHEX_GORM_ENABLE_INVALIDATION=true
+#   CACHEX_GORM_DEFAULT_TTL=15m
+#   CACHEX_GORM_ENABLE_QUERY_CACHE=true
+#   CACHEX_GORM_KEY_PREFIX=gorm:
+#   CACHEX_GORM_ENABLE_DEBUG=false
+#   CACHEX_GORM_BATCH_SIZE=50

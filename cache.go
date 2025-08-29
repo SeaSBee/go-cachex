@@ -6,8 +6,18 @@ import (
 )
 
 // Cache defines the main interface for the cache layer - Non-blocking Only
+//
+// IMPORTANT: Resource Management
+//   - The WithContext method returns a new cache instance that shares the same underlying
+//     resources (store, codec, etc.) but with a different context. This is NOT a deep copy.
+//   - All cache instances created from the same original cache share the same resources.
+//   - Only call Close() on the original cache instance to avoid resource leaks.
+//   - Multiple calls to Close() are safe and will only close resources once.
 type Cache[T any] interface {
-	// WithContext returns a new cache instance with the given context
+	// WithContext returns a new cache instance with the given context.
+	// This method creates a lightweight wrapper that shares the same underlying
+	// resources (store, codec, observability, etc.) but uses the provided context
+	// for all operations. The returned cache should NOT be closed independently.
 	WithContext(ctx context.Context) Cache[T]
 
 	// Non-blocking operations only
@@ -36,13 +46,25 @@ type Cache[T any] interface {
 	// Statistics
 	GetStats() map[string]any
 
-	// Close releases resources
+	// Close releases resources. This method is safe to call multiple times.
+	// Only call Close() on the original cache instance, not on instances
+	// returned by WithContext().
 	Close() error
 }
 
 // AnyCache defines a cache that can work with any type using type assertions - Non-blocking Only
+//
+// IMPORTANT: Resource Management
+//   - The WithContext method returns a new cache instance that shares the same underlying
+//     resources (store, codec, etc.) but with a different context. This is NOT a deep copy.
+//   - All cache instances created from the same original cache share the same resources.
+//   - Only call Close() on the original cache instance to avoid resource leaks.
+//   - Multiple calls to Close() are safe and will only close resources once.
 type AnyCache interface {
-	// WithContext returns a new cache instance with the given context
+	// WithContext returns a new cache instance with the given context.
+	// This method creates a lightweight wrapper that shares the same underlying
+	// resources (store, codec, observability, etc.) but uses the provided context
+	// for all operations. The returned cache should NOT be closed independently.
 	WithContext(ctx context.Context) AnyCache
 
 	// Non-blocking operations only
@@ -71,7 +93,9 @@ type AnyCache interface {
 	// Statistics
 	GetStats() map[string]any
 
-	// Close releases resources
+	// Close releases resources. This method is safe to call multiple times.
+	// Only call Close() on the original cache instance, not on instances
+	// returned by WithContext().
 	Close() error
 }
 
@@ -103,6 +127,7 @@ type AsyncAnyCacheResult struct {
 	Value  any
 	Values map[string]any
 	Found  bool
+	TTL    time.Duration
 	Error  error
 }
 
@@ -152,7 +177,8 @@ type Options struct {
 	MaxRetries    int
 	RetryDelay    time.Duration
 	Observability ObservabilityConfig
-	Security      *SecurityManager
+
+	AllowNilValues bool // Whether to allow nil values in the cache
 }
 
 // ObservabilityConfig defines observability settings
@@ -221,9 +247,9 @@ func WithObservability(config ObservabilityConfig) Option {
 	}
 }
 
-// WithSecurity sets the security manager for input validation
-func WithSecurity(security *SecurityManager) Option {
+// WithNilValues allows nil values to be stored in the cache
+func WithNilValues(allow bool) Option {
 	return func(o *Options) {
-		o.Security = security
+		o.AllowNilValues = allow
 	}
 }

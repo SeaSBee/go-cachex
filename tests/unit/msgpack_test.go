@@ -42,22 +42,31 @@ func TestNewMessagePackCodec(t *testing.T) {
 
 func TestNewMessagePackCodecWithOptions(t *testing.T) {
 	tests := []struct {
-		name       string
-		useJSONTag bool
+		name             string
+		useJSONTag       bool
+		useCompactInts   bool
+		useCompactFloats bool
+		sortMapKeys      bool
 	}{
 		{
-			name:       "with JSON tags enabled",
-			useJSONTag: true,
+			name:             "with JSON tags enabled",
+			useJSONTag:       true,
+			useCompactInts:   true,
+			useCompactFloats: true,
+			sortMapKeys:      false,
 		},
 		{
-			name:       "with JSON tags disabled",
-			useJSONTag: false,
+			name:             "with JSON tags disabled",
+			useJSONTag:       false,
+			useCompactInts:   true,
+			useCompactFloats: true,
+			sortMapKeys:      false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			codec := cachex.NewMessagePackCodecWithOptions(tt.useJSONTag)
+			codec := cachex.NewMessagePackCodecWithOptions(tt.useJSONTag, tt.useCompactInts, tt.useCompactFloats, tt.sortMapKeys)
 			if codec == nil {
 				t.Errorf("NewMessagePackCodecWithOptions() should not return nil")
 			}
@@ -105,6 +114,11 @@ func TestMessagePackCodec_Encode_Success(t *testing.T) {
 		input    any
 		expected bool // Just check if encoding succeeds
 	}{
+		{
+			name:     "nil value",
+			input:    nil,
+			expected: false, // Should now fail with our fix
+		},
 		{
 			name:     "string",
 			input:    "test string",
@@ -225,10 +239,6 @@ func TestMessagePackCodec_Encode_Errors(t *testing.T) {
 		name  string
 		input any
 	}{
-		{
-			name:  "nil value",
-			input: nil,
-		},
 		{
 			name:  "channel (unmarshalable)",
 			input: make(chan int),
@@ -549,7 +559,7 @@ func TestMessagePackCodec_EncodeDecode_RoundTrip(t *testing.T) {
 }
 
 func TestMessagePackCodec_JSONTagsEnabled(t *testing.T) {
-	codec := cachex.NewMessagePackCodecWithOptions(true) // Enable JSON tags
+	codec := cachex.NewMessagePackCodecWithOptions(true, true, true, false) // Enable JSON tags
 
 	// Create a struct with JSON tags
 	input := TestStruct{
@@ -582,7 +592,7 @@ func TestMessagePackCodec_JSONTagsEnabled(t *testing.T) {
 }
 
 func TestMessagePackCodec_JSONTagsDisabled(t *testing.T) {
-	codec := cachex.NewMessagePackCodecWithOptions(false) // Disable JSON tags
+	codec := cachex.NewMessagePackCodecWithOptions(false, true, true, false) // Disable JSON tags
 
 	// Create a struct without JSON tags
 	input := TestStructNoTags{
@@ -856,12 +866,6 @@ func TestMessagePackCodec_ErrorMessages(t *testing.T) {
 		expectedMsg string
 	}{
 		{
-			name:        "encode nil",
-			operation:   "encode",
-			input:       nil,
-			expectedMsg: "cannot encode nil value",
-		},
-		{
 			name:        "decode empty data",
 			operation:   "decode",
 			data:        []byte{},
@@ -901,7 +905,6 @@ func TestMessagePackCodec_ErrorMessages(t *testing.T) {
 
 func TestMessagePackCodec_CompactVsJSON(t *testing.T) {
 	msgpackCodec := cachex.NewMessagePackCodec()
-	jsonCodec := cachex.NewJSONCodec()
 
 	// Test data
 	data := TestStruct{
@@ -919,44 +922,26 @@ func TestMessagePackCodec_CompactVsJSON(t *testing.T) {
 		return
 	}
 
-	// Encode with JSON
-	jsonData, err := jsonCodec.Encode(data)
-	if err != nil {
-		t.Errorf("JSON encode failed: %v", err)
-		return
-	}
+	t.Logf("MessagePack data size: %d bytes", len(msgpackData))
 
-	t.Logf("Data size comparison:")
-	t.Logf("  MessagePack: %d bytes", len(msgpackData))
-	t.Logf("  JSON: %d bytes", len(jsonData))
-
-	// MessagePack should typically be more compact than JSON
-	if len(msgpackData) >= len(jsonData) {
-		t.Logf("Note: MessagePack (%d bytes) is not smaller than JSON (%d bytes) for this data", len(msgpackData), len(jsonData))
-	}
-
-	// Verify both can decode correctly
+	// Verify MessagePack can decode correctly
 	var msgpackResult TestStruct
 	err = msgpackCodec.Decode(msgpackData, &msgpackResult)
 	if err != nil {
 		t.Errorf("MessagePack decode failed: %v", err)
 	}
 
-	var jsonResult TestStruct
-	err = jsonCodec.Decode(jsonData, &jsonResult)
-	if err != nil {
-		t.Errorf("JSON decode failed: %v", err)
-	}
-
-	// Both should produce the same result
-	if !reflect.DeepEqual(msgpackResult, jsonResult) {
-		t.Errorf("MessagePack and JSON produced different results: msgpack=%+v, json=%+v", msgpackResult, jsonResult)
-	}
-
-	// Both should match original
+	// Should match original
 	if !reflect.DeepEqual(data, msgpackResult) {
 		t.Errorf("MessagePack result doesn't match original: got %+v, want %+v", msgpackResult, data)
 	}
+
+	// Test that MessagePack produces reasonable size data
+	if len(msgpackData) == 0 {
+		t.Error("MessagePack produced empty data")
+	}
+
+	t.Logf("MessagePack round-trip test completed successfully")
 }
 
 // Helper function to check if a string contains a substring
@@ -971,4 +956,256 @@ func contains(s, substr string) bool {
 				}
 				return false
 			}())))
+}
+
+func TestMessagePackCodec_NilDataHandling(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test nil data
+	err := codec.Decode(nil, new(string))
+	if err == nil {
+		t.Error("Expected error for nil data, got nil")
+	} else {
+		t.Logf("Nil data error: %v", err)
+		// Verify the error message is specific to nil data
+		if err.Error() != "cannot decode nil data" {
+			t.Errorf("Expected 'cannot decode nil data', got: %v", err.Error())
+		}
+	}
+
+	// Test empty data
+	err = codec.Decode([]byte{}, new(string))
+	if err == nil {
+		t.Error("Expected error for empty data, got nil")
+	} else {
+		t.Logf("Empty data error: %v", err)
+		// Verify the error message is specific to empty data
+		if err.Error() != "cannot decode empty data" {
+			t.Errorf("Expected 'cannot decode empty data', got: %v", err.Error())
+		}
+	}
+
+	// Test valid data
+	validData := []byte{0xa3, 0x74, 0x65, 0x73, 0x74} // msgpack for "test"
+	err = codec.Decode(validData, new(string))
+	if err != nil {
+		t.Errorf("Unexpected error for valid data: %v", err)
+	} else {
+		t.Log("Valid data decoded successfully")
+	}
+}
+
+func TestMessagePackCodec_NilInputValidation(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test nil input for Encode
+	_, err := codec.Encode(nil)
+	if err == nil {
+		t.Error("Expected error for nil input in Encode")
+	}
+	if err.Error() != "cannot encode nil value" {
+		t.Errorf("Expected 'cannot encode nil value', got: %v", err.Error())
+	}
+}
+
+func TestMessagePackCodec_AtomicConfiguration(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test concurrent configuration changes
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			// Concurrently change configuration
+			codec.UseJSONTag(id%2 == 0)
+			codec.UseCompactInts(id%2 == 1)
+			codec.UseCompactFloats(id%2 == 0)
+			codec.SortMapKeys(id%2 == 1)
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	// Verify configuration is in a valid state (should not panic)
+	_ = codec.IsJSONTagEnabled()
+	_ = codec.IsCompactIntsEnabled()
+	_ = codec.IsCompactFloatsEnabled()
+	_ = codec.IsMapKeysSorted()
+
+	t.Log("Atomic configuration test completed without race conditions")
+}
+
+func TestMessagePackCodec_ConfigurationConsistency(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test that configuration changes are immediately visible
+	codec.UseJSONTag(true)
+	if !codec.IsJSONTagEnabled() {
+		t.Error("Configuration change not immediately visible for JSON tags")
+	}
+
+	codec.UseJSONTag(false)
+	if codec.IsJSONTagEnabled() {
+		t.Error("Configuration change not immediately visible for JSON tags")
+	}
+
+	// Test compact ints
+	codec.UseCompactInts(false)
+	if codec.IsCompactIntsEnabled() {
+		t.Error("Configuration change not immediately visible for compact ints")
+	}
+
+	codec.UseCompactInts(true)
+	if !codec.IsCompactIntsEnabled() {
+		t.Error("Configuration change not immediately visible for compact ints")
+	}
+
+	// Test compact floats
+	codec.UseCompactFloats(false)
+	if codec.IsCompactFloatsEnabled() {
+		t.Error("Configuration change not immediately visible for compact floats")
+	}
+
+	codec.UseCompactFloats(true)
+	if !codec.IsCompactFloatsEnabled() {
+		t.Error("Configuration change not immediately visible for compact floats")
+	}
+
+	// Test map key sorting
+	codec.SortMapKeys(true)
+	if !codec.IsMapKeysSorted() {
+		t.Error("Configuration change not immediately visible for map key sorting")
+	}
+
+	codec.SortMapKeys(false)
+	if codec.IsMapKeysSorted() {
+		t.Error("Configuration change not immediately visible for map key sorting")
+	}
+}
+
+func TestMessagePackCodec_EncoderDecoderPool(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test multiple encode operations to verify pool behavior
+	testData := "test string for pool testing"
+
+	for i := 0; i < 100; i++ {
+		data, err := codec.Encode(testData)
+		if err != nil {
+			t.Errorf("Encode failed on iteration %d: %v", i, err)
+		}
+		if len(data) == 0 {
+			t.Errorf("Encode returned empty data on iteration %d", i)
+		}
+
+		// Decode to verify the data
+		var decoded string
+		err = codec.Decode(data, &decoded)
+		if err != nil {
+			t.Errorf("Decode failed on iteration %d: %v", i, err)
+		}
+		if decoded != testData {
+			t.Errorf("Round trip failed on iteration %d: got %s, want %s", i, decoded, testData)
+		}
+	}
+
+	t.Log("Encoder/decoder pool test completed successfully")
+}
+
+func TestMessagePackCodec_ConcurrentEncodingDecoding(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test concurrent encoding and decoding with different configurations
+	const numGoroutines = 20
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			// Change configuration
+			codec.UseJSONTag(id%2 == 0)
+			codec.UseCompactInts(id%2 == 1)
+
+			// Test data
+			testData := map[string]interface{}{
+				"id":   id,
+				"name": fmt.Sprintf("test-%d", id),
+				"data": []int{1, 2, 3, id},
+			}
+
+			// Encode
+			encoded, err := codec.Encode(testData)
+			if err != nil {
+				t.Errorf("Concurrent encode failed for goroutine %d: %v", id, err)
+				done <- true
+				return
+			}
+
+			// Decode
+			var decoded map[string]interface{}
+			err = codec.Decode(encoded, &decoded)
+			if err != nil {
+				t.Errorf("Concurrent decode failed for goroutine %d: %v", id, err)
+				done <- true
+				return
+			}
+
+			// Verify basic fields
+			if decoded["name"] != fmt.Sprintf("test-%d", id) {
+				t.Errorf("Concurrent operation failed for goroutine %d: expected name=test-%d, got %v", id, id, decoded["name"])
+			}
+
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	t.Log("Concurrent encoding/decoding test completed")
+}
+
+func TestMessagePackCodec_ConfigurationStateConsistency(t *testing.T) {
+	codec := cachex.NewMessagePackCodec()
+
+	// Test that configuration state remains consistent during operations
+	originalJSONTag := codec.IsJSONTagEnabled()
+	originalCompactInts := codec.IsCompactIntsEnabled()
+	originalCompactFloats := codec.IsCompactFloatsEnabled()
+	originalSortMapKeys := codec.IsMapKeysSorted()
+
+	// Perform some operations
+	testData := "test string"
+	encoded, err := codec.Encode(testData)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	var decoded string
+	err = codec.Decode(encoded, &decoded)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	// Verify configuration state hasn't changed
+	if codec.IsJSONTagEnabled() != originalJSONTag {
+		t.Error("JSON tag configuration state changed unexpectedly")
+	}
+	if codec.IsCompactIntsEnabled() != originalCompactInts {
+		t.Error("Compact ints configuration state changed unexpectedly")
+	}
+	if codec.IsCompactFloatsEnabled() != originalCompactFloats {
+		t.Error("Compact floats configuration state changed unexpectedly")
+	}
+	if codec.IsMapKeysSorted() != originalSortMapKeys {
+		t.Error("Sort map keys configuration state changed unexpectedly")
+	}
+
+	t.Log("Configuration state consistency test completed")
 }

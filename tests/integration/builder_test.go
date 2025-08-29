@@ -130,7 +130,10 @@ func TestCacheBuilderWithKeyBuilder(t *testing.T) {
 	defer cache.Close()
 
 	// Test key building using the Builder
-	keyBuilder := cachex.NewBuilder("test", "env", "secret")
+	keyBuilder, err := cachex.NewBuilder("test", "env", "secret")
+	if err != nil {
+		t.Fatalf("Failed to create key builder: %v", err)
+	}
 
 	// Test Build method
 	key := keyBuilder.Build("user", "123")

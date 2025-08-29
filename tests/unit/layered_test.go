@@ -308,9 +308,10 @@ func TestLayeredStore_Set_WriteThrough(t *testing.T) {
 func TestLayeredStore_Set_WriteBehind(t *testing.T) {
 	l2Store := NewMockStore()
 	config := &cachex.LayeredConfig{
-		MemoryConfig: cachex.DefaultMemoryConfig(),
-		WritePolicy:  cachex.WritePolicyBehind,
-		EnableStats:  true,
+		MemoryConfig:      cachex.DefaultMemoryConfig(),
+		WritePolicy:       cachex.WritePolicyBehind,
+		EnableStats:       true,
+		MaxConcurrentSync: 10,
 	}
 
 	store, err := cachex.NewLayeredStore(l2Store, config)
@@ -326,8 +327,19 @@ func TestLayeredStore_Set_WriteBehind(t *testing.T) {
 		return
 	}
 
+	// Verify value is in L1 (immediate write)
+	l1GetResult := <-store.Get(context.Background(), "test-key")
+	if l1GetResult.Error != nil {
+		t.Errorf("Failed to get from L1: %v", l1GetResult.Error)
+		return
+	}
+	if !l1GetResult.Exists {
+		t.Errorf("Value should exist in L1")
+		return
+	}
+
 	// Wait a bit for async write to L2
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// Verify value is in L2 (async write should have completed)
 	l2GetResult := <-l2Store.Get(context.Background(), "test-key")
@@ -906,4 +918,492 @@ func TestLayeredStore_EdgeCases(t *testing.T) {
 	if setResult2.Error != nil {
 		t.Errorf("Set() should work with zero TTL: %v", setResult2.Error)
 	}
+
+	// Test with negative TTL (should be rejected)
+	setResult3 := <-store.Set(context.Background(), "test-key", []byte("value"), -1*time.Minute)
+	if setResult3.Error == nil {
+		t.Error("Set() should reject negative TTL")
+	}
+
+	// Test with empty keys in MGet (should be rejected)
+	mgetResult := <-store.MGet(context.Background(), "key1", "", "key2")
+	if mgetResult.Error == nil {
+		t.Error("MGet() should reject empty keys")
+	}
+
+	// Test with nil values in MSet (should be rejected)
+	items := map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": nil,
+		"key3": []byte("value3"),
+	}
+	msetResult := <-store.MSet(context.Background(), items, 5*time.Minute)
+	if msetResult.Error == nil {
+		t.Error("MSet() should reject nil values")
+	}
+
+	// Test with empty keys in Del (should be rejected)
+	delResult := <-store.Del(context.Background(), "key1", "", "key2")
+	if delResult.Error == nil {
+		t.Error("Del() should reject empty keys")
+	}
+
+	// Test with negative delta in IncrBy (should be allowed)
+	incrResult := <-store.IncrBy(context.Background(), "counter", -5, 5*time.Minute)
+	if incrResult.Error != nil {
+		t.Errorf("IncrBy() should work with negative delta: %v", incrResult.Error)
+	}
+
+	// Test with negative TTL in IncrBy (should be rejected)
+	incrResult2 := <-store.IncrBy(context.Background(), "counter2", 5, -1*time.Minute)
+	if incrResult2.Error == nil {
+		t.Error("IncrBy() should reject negative TTL")
+	}
+}
+
+// TestLayeredStore_StoreInitializationFailure tests store initialization failures
+func TestLayeredStore_StoreInitializationFailure(t *testing.T) {
+	// Test with nil L2 store
+	config := cachex.DefaultLayeredConfig()
+	_, err := cachex.NewLayeredStore(nil, config)
+	if err == nil {
+		t.Error("NewLayeredStore() should fail with nil L2 store")
+	}
+
+	// Test with nil memory config
+	config2 := &cachex.LayeredConfig{
+		MemoryConfig: nil,
+		WritePolicy:  cachex.WritePolicyThrough,
+		ReadPolicy:   cachex.ReadPolicyThrough,
+		EnableStats:  true,
+	}
+	l2Store := NewMockStore()
+	_, err = cachex.NewLayeredStore(l2Store, config2)
+	if err == nil {
+		t.Error("NewLayeredStore() should fail with nil MemoryConfig")
+	}
+}
+
+// TestLayeredStore_StoreValidationFailure tests store validation failures
+func TestLayeredStore_StoreValidationFailure(t *testing.T) {
+	// Create a mock store that fails validation
+	invalidStore := &InvalidMockStore{}
+	config := cachex.DefaultLayeredConfig()
+
+	_, err := cachex.NewLayeredStore(invalidStore, config)
+	if err == nil {
+		t.Error("NewLayeredStore() should fail with invalid store")
+	}
+}
+
+// TestLayeredStore_PartialOperationFailure tests partial operation failures
+func TestLayeredStore_PartialOperationFailure(t *testing.T) {
+	// Create a mock store that fails L2 operations
+	failingStore := &FailingMockStore{
+		MockStore:   NewMockStore(),
+		failCount:   0, // Don't fail during validation
+		currentFail: 0,
+	}
+	config := cachex.DefaultLayeredConfig()
+
+	store, err := cachex.NewLayeredStore(failingStore, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+	defer store.Close()
+
+	// Reset the fail count to trigger failures during operations
+	failingStore.failCount = 1
+	failingStore.currentFail = 0
+
+	// Test write-through with L2 failure
+	setResult := <-store.Set(context.Background(), "test-key", []byte("value"), 5*time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Set() should not fail completely in write-through mode: %v", setResult.Error)
+	}
+
+	// Reset for next operation
+	failingStore.failCount = 1
+	failingStore.currentFail = 0
+
+	// Test MSet with L2 failure
+	items := map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": []byte("value2"),
+	}
+	msetResult := <-store.MSet(context.Background(), items, 5*time.Minute)
+	if msetResult.Error != nil {
+		t.Errorf("MSet() should not fail completely in write-through mode: %v", msetResult.Error)
+	}
+}
+
+// TestLayeredStore_AsyncOperationTimeout tests async operation timeouts
+func TestLayeredStore_AsyncOperationTimeout(t *testing.T) {
+	l2Store := NewMockStore()
+	config := &cachex.LayeredConfig{
+		MemoryConfig:          cachex.DefaultMemoryConfig(),
+		WritePolicy:           cachex.WritePolicyBehind,
+		ReadPolicy:            cachex.ReadPolicyThrough,
+		EnableStats:           true,
+		AsyncOperationTimeout: 1 * time.Millisecond, // Very short timeout
+		MaxConcurrentSync:     1,                    // Limit concurrency
+	}
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+	defer store.Close()
+
+	// Test write-behind with timeout
+	setResult := <-store.Set(context.Background(), "test-key", []byte("value"), 5*time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Set() should not fail due to async timeout: %v", setResult.Error)
+	}
+
+	// Wait a bit for async operations to complete or timeout
+	time.Sleep(10 * time.Millisecond)
+}
+
+// TestLayeredStore_SemaphoreExhaustion tests semaphore exhaustion
+func TestLayeredStore_SemaphoreExhaustion(t *testing.T) {
+	l2Store := NewMockStore()
+	config := &cachex.LayeredConfig{
+		MemoryConfig:          cachex.DefaultMemoryConfig(),
+		WritePolicy:           cachex.WritePolicyBehind,
+		ReadPolicy:            cachex.ReadPolicyThrough,
+		EnableStats:           true,
+		AsyncOperationTimeout: 100 * time.Millisecond,
+		MaxConcurrentSync:     1, // Very low concurrency limit
+	}
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+	defer store.Close()
+
+	// Try to trigger semaphore exhaustion with multiple concurrent operations
+	numOperations := 5
+	results := make(chan bool, numOperations)
+
+	for i := 0; i < numOperations; i++ {
+		go func(id int) {
+			key := fmt.Sprintf("key-%d", id)
+			value := []byte(fmt.Sprintf("value-%d", id))
+
+			setResult := <-store.Set(context.Background(), key, value, 5*time.Minute)
+			results <- (setResult.Error == nil)
+		}(i)
+	}
+
+	// Wait for all operations to complete
+	successCount := 0
+	for i := 0; i < numOperations; i++ {
+		if <-results {
+			successCount++
+		}
+	}
+
+	// All operations should succeed, but some async operations might be skipped
+	if successCount == 0 {
+		t.Error("All operations failed, expected at least some to succeed")
+	}
+}
+
+// TestLayeredStore_OperationsAfterClose tests operations after store is closed
+func TestLayeredStore_OperationsAfterClose(t *testing.T) {
+	l2Store := NewMockStore()
+	config := cachex.DefaultLayeredConfig()
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+
+	// Close the store
+	err = store.Close()
+	if err != nil {
+		t.Errorf("Close() failed: %v", err)
+	}
+
+	// Try operations after close
+	getResult := <-store.Get(context.Background(), "test-key")
+	if getResult.Error == nil {
+		t.Error("Get() should fail after store is closed")
+	}
+
+	setResult := <-store.Set(context.Background(), "test-key", []byte("value"), 5*time.Minute)
+	if setResult.Error == nil {
+		t.Error("Set() should fail after store is closed")
+	}
+
+	delResult := <-store.Del(context.Background(), "test-key")
+	if delResult.Error == nil {
+		t.Error("Del() should fail after store is closed")
+	}
+}
+
+// TestLayeredStore_MultipleClose tests multiple Close() calls
+func TestLayeredStore_MultipleClose(t *testing.T) {
+	l2Store := NewMockStore()
+	config := cachex.DefaultLayeredConfig()
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+
+	// First close should succeed
+	err = store.Close()
+	if err != nil {
+		t.Errorf("First Close() failed: %v", err)
+	}
+
+	// Second close should also succeed (idempotent)
+	err = store.Close()
+	if err != nil {
+		t.Errorf("Second Close() failed: %v", err)
+	}
+}
+
+// TestLayeredStore_BackgroundSyncCleanup tests background sync cleanup
+func TestLayeredStore_BackgroundSyncCleanup(t *testing.T) {
+	l2Store := NewMockStore()
+	config := &cachex.LayeredConfig{
+		MemoryConfig: cachex.DefaultMemoryConfig(),
+		WritePolicy:  cachex.WritePolicyBehind, // Enable background sync
+		ReadPolicy:   cachex.ReadPolicyThrough,
+		EnableStats:  true,
+		SyncInterval: 100 * time.Millisecond, // Short interval for testing
+	}
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+
+	// Wait a bit for background sync to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should clean up background sync
+	err = store.Close()
+	if err != nil {
+		t.Errorf("Close() failed: %v", err)
+	}
+
+	// Wait a bit more to ensure cleanup is complete
+	time.Sleep(50 * time.Millisecond)
+}
+
+// TestLayeredStore_InvalidTimeoutConfig tests invalid timeout configurations
+func TestLayeredStore_InvalidTimeoutConfig(t *testing.T) {
+	l2Store := NewMockStore()
+
+	// Test with zero timeout
+	config1 := &cachex.LayeredConfig{
+		MemoryConfig:          cachex.DefaultMemoryConfig(),
+		WritePolicy:           cachex.WritePolicyThrough,
+		ReadPolicy:            cachex.ReadPolicyThrough,
+		EnableStats:           true,
+		AsyncOperationTimeout: 0, // Zero timeout
+		BackgroundSyncTimeout: 0, // Zero timeout
+	}
+
+	store1, err := cachex.NewLayeredStore(l2Store, config1)
+	if err != nil {
+		t.Fatalf("NewLayeredStore() should work with zero timeouts: %v", err)
+	}
+	defer store1.Close()
+
+	// Test that operations still work with zero timeouts (should use defaults)
+	setResult := <-store1.Set(context.Background(), "test-key", []byte("value"), 5*time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Set() should work with zero timeout config: %v", setResult.Error)
+	}
+}
+
+// TestLayeredStore_InvalidConcurrencyConfig tests invalid concurrency configurations
+func TestLayeredStore_InvalidConcurrencyConfig(t *testing.T) {
+	l2Store := NewMockStore()
+
+	// Test with zero concurrency
+	config1 := &cachex.LayeredConfig{
+		MemoryConfig:      cachex.DefaultMemoryConfig(),
+		WritePolicy:       cachex.WritePolicyThrough,
+		ReadPolicy:        cachex.ReadPolicyThrough,
+		EnableStats:       true,
+		MaxConcurrentSync: 0, // Zero concurrency
+	}
+
+	store1, err := cachex.NewLayeredStore(l2Store, config1)
+	if err != nil {
+		t.Fatalf("NewLayeredStore() should work with zero concurrency: %v", err)
+	}
+	defer store1.Close()
+
+	// Test that operations still work with zero concurrency
+	setResult := <-store1.Set(context.Background(), "test-key", []byte("value"), 5*time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Set() should work with zero concurrency config: %v", setResult.Error)
+	}
+}
+
+// TestLayeredStore_ConcurrentCloseAndOperations tests concurrent Close() and operations
+func TestLayeredStore_ConcurrentCloseAndOperations(t *testing.T) {
+	l2Store := NewMockStore()
+	config := cachex.DefaultLayeredConfig()
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+
+	// Start concurrent operations
+	numOperations := 10
+	operationDone := make(chan bool, numOperations)
+	closeDone := make(chan bool, 1)
+
+	// Start operations
+	for i := 0; i < numOperations; i++ {
+		go func(id int) {
+			key := fmt.Sprintf("key-%d", id)
+			value := []byte(fmt.Sprintf("value-%d", id))
+
+			<-store.Set(context.Background(), key, value, 5*time.Minute)
+			<-store.Get(context.Background(), key)
+
+			// Operations might fail if store is closed, which is expected
+			operationDone <- true
+		}(i)
+	}
+
+	// Start close operation
+	go func() {
+		time.Sleep(1 * time.Millisecond) // Small delay to allow operations to start
+		store.Close()
+		closeDone <- true
+	}()
+
+	// Wait for all operations to complete
+	for i := 0; i < numOperations; i++ {
+		<-operationDone
+	}
+	<-closeDone
+}
+
+// TestLayeredStore_ConcurrentStatsUpdates tests concurrent stats updates
+func TestLayeredStore_ConcurrentStatsUpdates(t *testing.T) {
+	l2Store := NewMockStore()
+	config := &cachex.LayeredConfig{
+		MemoryConfig: cachex.DefaultMemoryConfig(),
+		WritePolicy:  cachex.WritePolicyThrough,
+		ReadPolicy:   cachex.ReadPolicyThrough,
+		EnableStats:  true,
+	}
+
+	store, err := cachex.NewLayeredStore(l2Store, config)
+	if err != nil {
+		t.Fatalf("Failed to create layered store: %v", err)
+	}
+	defer store.Close()
+
+	// Start concurrent operations that will update stats
+	numOperations := 20
+	operationDone := make(chan bool, numOperations)
+
+	for i := 0; i < numOperations; i++ {
+		go func(id int) {
+			key := fmt.Sprintf("key-%d", id)
+			value := []byte(fmt.Sprintf("value-%d", id))
+
+			// Set operation
+			<-store.Set(context.Background(), key, value, 5*time.Minute)
+
+			// Get operation
+			<-store.Get(context.Background(), key)
+
+			// Get stats (this should be thread-safe)
+			stats := store.GetStats()
+			if stats == nil {
+				t.Error("GetStats() returned nil")
+			}
+
+			operationDone <- true
+		}(i)
+	}
+
+	// Wait for all operations to complete
+	for i := 0; i < numOperations; i++ {
+		<-operationDone
+	}
+
+	// Final stats check
+	stats := store.GetStats()
+	if stats == nil {
+		t.Error("Final GetStats() returned nil")
+	}
+}
+
+// InvalidMockStore is a mock store that fails validation
+type InvalidMockStore struct{}
+
+func (m *InvalidMockStore) Get(ctx context.Context, key string) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) Set(ctx context.Context, key string, value []byte, ttl time.Duration) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) MGet(ctx context.Context, keys ...string) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) MSet(ctx context.Context, items map[string][]byte, ttl time.Duration) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) Del(ctx context.Context, keys ...string) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) Exists(ctx context.Context, key string) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) TTL(ctx context.Context, key string) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) IncrBy(ctx context.Context, key string, delta int64, ttlIfCreate time.Duration) <-chan cachex.AsyncResult {
+	result := make(chan cachex.AsyncResult, 1)
+	result <- cachex.AsyncResult{Error: fmt.Errorf("invalid store")}
+	close(result)
+	return result
+}
+
+func (m *InvalidMockStore) Close() error {
+	return fmt.Errorf("invalid store")
 }

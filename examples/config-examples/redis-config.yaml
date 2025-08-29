@@ -14,6 +14,8 @@ redis:
   write_timeout: 3s
   enable_pipelining: true
   enable_metrics: true
+  health_check_interval: 30s
+  health_check_timeout: 5s
 
 # General cache settings
 default_ttl: 5m
@@ -28,6 +30,12 @@ observability:
   enable_metrics: true
   enable_tracing: true
   enable_logging: true
+  service_name: "cachex-redis"
+  service_version: "1.0.0"
+  environment: "production"
+  log_level: "info"
+  metrics_interval: 30s
+  trace_sampling_rate: 0.1
 
 # Security settings
 security:
@@ -53,13 +61,34 @@ tagging:
   tag_mapping_ttl: 24h
   batch_size: 100
   enable_stats: true
+  load_timeout: 5s
+
+# Optimized tagging settings (for high-throughput)
+optimized_tagging:
+  enable_persistence: true
+  tag_mapping_ttl: 24h
+  batch_size: 200
+  enable_stats: true
+  load_timeout: 5s
+  enable_background_persistence: true
+  persistence_interval: 30s
+  enable_memory_optimization: true
+  max_memory_usage: 209715200  # 200MB
+  batch_flush_interval: 5s
 
 # Refresh ahead settings
 refresh_ahead:
   enabled: true
   refresh_interval: 30s
   default_refresh_before: 2m
+  max_concurrent_refreshes: 10
+  enable_distributed_lock: true
+  lock_timeout: 30s
   enable_metrics: false
+  default_ttl: 5m
+  unlock_timeout: 30s
+  max_consecutive_failures: 3
+  max_task_age: 1h
 
 # GORM integration settings
 gorm:
@@ -70,3 +99,28 @@ gorm:
   key_prefix: "gorm"
   enable_debug: false
   batch_size: 100
+
+# Memory pool settings
+memory_pool:
+  enabled: true
+  initial_size: 100
+  max_size: 1000
+  cleanup_interval: 5m
+  enable_stats: true
+
+# Allocation optimization settings
+allocation_optimization:
+  enabled: true
+  enable_memory_pools: true
+  enable_buffer_pooling: true
+  enable_string_optimization: true
+  enable_map_optimization: true
+  enable_value_copy_optimization: true
+
+# Validation cache settings
+validation_cache:
+  enabled: true
+  ttl: 1h
+  max_size: 1000
+  enable_stats: true
+  cleanup_interval: 5m

@@ -221,6 +221,9 @@ func TestRistrettoStoreWithCache(t *testing.T) {
 		t.Fatalf("Failed to set value: %v", setResult.Error)
 	}
 
+	// Ristretto may need a small delay to process the value internally
+	time.Sleep(10 * time.Millisecond)
+
 	// Get value
 	getResult := <-cache.Get(ctx, key)
 	if getResult.Error != nil {

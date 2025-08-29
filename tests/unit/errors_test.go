@@ -233,14 +233,29 @@ func TestNewCacheError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cacheErr := cachex.NewCacheError(tt.op, tt.key, tt.message, tt.err)
 
-			if cacheErr.Op != tt.op {
-				t.Errorf("NewCacheError().Op = %v, want %v", cacheErr.Op, tt.op)
+			// For empty fields, expect default values
+			expectedOp := tt.op
+			expectedKey := tt.key
+			expectedMessage := tt.message
+
+			if tt.op == "" {
+				expectedOp = "unknown"
 			}
-			if cacheErr.Key != tt.key {
-				t.Errorf("NewCacheError().Key = %v, want %v", cacheErr.Key, tt.key)
+			if tt.key == "" {
+				expectedKey = "unknown"
 			}
-			if cacheErr.Message != tt.message {
-				t.Errorf("NewCacheError().Message = %v, want %v", cacheErr.Message, tt.message)
+			if tt.message == "" {
+				expectedMessage = "unknown error"
+			}
+
+			if cacheErr.Op != expectedOp {
+				t.Errorf("NewCacheError().Op = %v, want %v", cacheErr.Op, expectedOp)
+			}
+			if cacheErr.Key != expectedKey {
+				t.Errorf("NewCacheError().Key = %v, want %v", cacheErr.Key, expectedKey)
+			}
+			if cacheErr.Message != expectedMessage {
+				t.Errorf("NewCacheError().Message = %v, want %v", cacheErr.Message, expectedMessage)
 			}
 			if cacheErr.Err != tt.err {
 				t.Errorf("NewCacheError().Err = %v, want %v", cacheErr.Err, tt.err)

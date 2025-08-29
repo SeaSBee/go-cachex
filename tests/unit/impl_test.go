@@ -912,7 +912,8 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 }
 
 func TestDefaultCodec_EncodeDecode(t *testing.T) {
-	codec := &cachex.JSONCodec{}
+	// Use NewJSONCodec to get properly initialized codec
+	codec := cachex.NewJSONCodec()
 
 	user := TestUser{ID: "1", Name: "John", Email: "john@example.com"}
 
@@ -950,6 +951,36 @@ func TestCache_RetryLogic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
+
+	user := TestUser{ID: "1", Name: "John", Email: "john@example.com"}
+	ctx := context.Background()
+	setResult := <-cache.Set(ctx, "user:1", user, 5*time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Set() with retry should succeed: %v", setResult.Error)
+	}
+
+	if failingStore.currentFail <= failingStore.failCount {
+		t.Errorf("Retry logic should have been exercised")
+	}
+}
+
+func TestCache_RetryLogicSimple(t *testing.T) {
+	// Create a store that fails initially but succeeds after retries
+	failingStore := &FailingMockStore{
+		MockStore:   NewMockStore(),
+		failCount:   1, // Only fail once
+		currentFail: 0,
+	}
+
+	cache, err := cachex.New[TestUser](
+		cachex.WithStore(failingStore),
+		cachex.WithMaxRetries(1),                  // Only retry once
+		cachex.WithRetryDelay(1*time.Millisecond), // Very short delay
+	)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer cache.Close()
 
 	user := TestUser{ID: "1", Name: "John", Email: "john@example.com"}
 	ctx := context.Background()

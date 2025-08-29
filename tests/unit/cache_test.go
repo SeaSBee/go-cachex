@@ -1050,3 +1050,149 @@ func (m *MockAnyCache) TryLock(ctx context.Context, key string, ttl time.Duratio
 }
 func (m *MockAnyCache) GetStats() map[string]any { return nil }
 func (m *MockAnyCache) Close() error             { return nil }
+
+func TestCache_ConcurrentClose(t *testing.T) {
+	store, err := cachex.NewMemoryStore(cachex.DefaultMemoryConfig())
+	if err != nil {
+		t.Fatalf("Failed to create memory store: %v", err)
+	}
+
+	cache, err := cachex.New[string](
+		cachex.WithStore(store),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+
+	// Test concurrent close operations
+	const numGoroutines = 10
+	results := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			results <- cache.Close()
+		}()
+	}
+
+	// Collect all results
+	for i := 0; i < numGoroutines; i++ {
+		err := <-results
+		if err != nil {
+			t.Errorf("Close operation %d failed: %v", i, err)
+		}
+	}
+
+	// Verify that subsequent close calls return nil
+	err = cache.Close()
+	if err != nil {
+		t.Errorf("Subsequent close call should return nil, got: %v", err)
+	}
+}
+
+func TestCache_WithContextResourceSharing(t *testing.T) {
+	store, err := cachex.NewMemoryStore(cachex.DefaultMemoryConfig())
+	if err != nil {
+		t.Fatalf("Failed to create memory store: %v", err)
+	}
+
+	originalCache, err := cachex.New[string](
+		cachex.WithStore(store),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer originalCache.Close()
+
+	ctx1 := context.WithValue(context.Background(), "test", "value1")
+	ctx2 := context.WithValue(context.Background(), "test", "value2")
+
+	// Create context-specific caches
+	cache1 := originalCache.WithContext(ctx1)
+	cache2 := originalCache.WithContext(ctx2)
+
+	// Test that context caches work before closing
+	setResult := <-cache1.Set(ctx1, "test-key", "test-value", time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Failed to set value in context cache: %v", setResult.Error)
+	}
+
+	getResult := <-cache1.Get(ctx1, "test-key")
+	if getResult.Error != nil {
+		t.Errorf("Failed to get value from context cache: %v", getResult.Error)
+	}
+	if getResult.Value != "test-value" {
+		t.Errorf("Expected 'test-value', got: %v", getResult.Value)
+	}
+
+	// Verify they share the same underlying resources by checking that
+	// closing the original cache affects all instances
+	err = originalCache.Close()
+	if err != nil {
+		t.Errorf("Failed to close original cache: %v", err)
+	}
+
+	// Verify that operations on context-specific caches fail after original is closed
+	result := <-cache1.Get(ctx1, "test-key")
+	if result.Error == nil {
+		t.Error("Expected error when using context cache after original is closed")
+	}
+
+	result = <-cache2.Get(ctx2, "test-key")
+	if result.Error == nil {
+		t.Error("Expected error when using context cache after original is closed")
+	}
+}
+
+func TestCache_WithNilValues(t *testing.T) {
+	store, err := cachex.NewMemoryStore(cachex.DefaultMemoryConfig())
+	if err != nil {
+		t.Fatalf("Failed to create memory store: %v", err)
+	}
+
+	// Test cache with nil values allowed
+	cache, err := cachex.New[*string](
+		cachex.WithStore(store),
+		cachex.WithNilValues(true),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer cache.Close()
+
+	ctx := context.Background()
+
+	// Test setting nil value (should work when allowed)
+	var nilValue *string
+	setResult := <-cache.Set(ctx, "nil-key", nilValue, time.Minute)
+	if setResult.Error != nil {
+		t.Errorf("Expected nil value to be allowed, got error: %v", setResult.Error)
+	}
+
+	// Test getting nil value back
+	getResult := <-cache.Get(ctx, "nil-key")
+	if getResult.Error != nil {
+		t.Errorf("Expected to get nil value back, got error: %v", getResult.Error)
+	}
+	if getResult.Value != nil {
+		t.Errorf("Expected nil value, got: %v", getResult.Value)
+	}
+
+	// Test cache with nil values not allowed (default behavior)
+	cacheNoNil, err := cachex.New[*string](
+		cachex.WithStore(store),
+		cachex.WithNilValues(false),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer cacheNoNil.Close()
+
+	// Test setting nil value (should fail when not allowed)
+	setResult = <-cacheNoNil.Set(ctx, "nil-key-2", nilValue, time.Minute)
+	t.Logf("Set result: err=%v", setResult.Error)
+	if setResult.Error == nil {
+		t.Error("Expected error when setting nil value with nil values not allowed")
+	} else {
+		t.Logf("Got expected error: %v", setResult.Error)
+	}
+}

@@ -14,33 +14,30 @@ import (
 // CacheConfig represents the main configuration structure
 type CacheConfig struct {
 	// Cache store configuration - only one can be active
-	Memory    *MemoryConfig    `yaml:"memory" json:"memory"`
-	Redis     *RedisConfig     `yaml:"redis" json:"redis"`
-	Ristretto *RistrettoConfig `yaml:"ristretto" json:"ristretto"`
-	Layered   *LayeredConfig   `yaml:"layered" json:"layered"`
+	Memory    *MemoryConfig    `yaml:"memory" json:"memory" validate:"omitempty"`
+	Redis     *RedisConfig     `yaml:"redis" json:"redis" validate:"omitempty"`
+	Ristretto *RistrettoConfig `yaml:"ristretto" json:"ristretto" validate:"omitempty"`
+	Layered   *LayeredConfig   `yaml:"layered" json:"layered" validate:"omitempty"`
 
 	// General cache settings
-	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl"`
-	MaxRetries int           `yaml:"max_retries" json:"max_retries"`
-	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay"`
+	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"gte:0,lte:86400000000000"` // 0 to 24h in nanoseconds
+	MaxRetries int           `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10"`
+	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay" validate:"gte:0,lte:60000000000"` // 0 to 1min in nanoseconds
 
 	// Codec settings
-	Codec string `yaml:"codec" json:"codec"` // "json" or "msgpack"
+	Codec string `yaml:"codec" json:"codec" validate:"omitempty,oneof:json msgpack"` // "json" or "msgpack"
 
 	// Observability settings
-	Observability *ObservabilityConfig `yaml:"observability" json:"observability"`
-
-	// Security settings
-	Security *SecurityConfig `yaml:"security" json:"security"`
+	Observability *ObservabilityConfig `yaml:"observability" json:"observability" validate:"omitempty"`
 
 	// Tagging settings
-	Tagging *TagConfig `yaml:"tagging" json:"tagging"`
+	Tagging *TagConfig `yaml:"tagging" json:"tagging" validate:"omitempty"`
 
 	// Refresh ahead settings
-	RefreshAhead *RefreshAheadConfig `yaml:"refresh_ahead" json:"refresh_ahead"`
+	RefreshAhead *RefreshAheadConfig `yaml:"refresh_ahead" json:"refresh_ahead" validate:"omitempty"`
 
 	// GORM integration settings
-	GORM *GormConfig `yaml:"gorm" json:"gorm"`
+	GORM *GormConfig `yaml:"gorm" json:"gorm" validate:"omitempty"`
 }
 
 // LoadConfig loads configuration from environment variables and YAML file
@@ -65,6 +62,11 @@ func LoadConfig(configPath string) (*CacheConfig, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
+	// Final validation to ensure configuration is complete
+	if err := validateConfigurationCompleteness(config); err != nil {
+		return nil, fmt.Errorf("configuration completeness check failed: %w", err)
+	}
+
 	return config, nil
 }
 
@@ -80,6 +82,74 @@ func loadFromYAML(configPath string, config *CacheConfig) error {
 	}
 
 	return nil
+}
+
+// parseEnvInt safely parses an environment variable as an integer
+func parseEnvInt(key string) (int, error) {
+	val := os.Getenv(key)
+	if val == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(val)
+}
+
+// parseEnvInt64 safely parses an environment variable as an int64
+func parseEnvInt64(key string) (int64, error) {
+	val := os.Getenv(key)
+	if val == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(val, 10, 64)
+}
+
+// parseEnvDuration safely parses an environment variable as a duration
+func parseEnvDuration(key string) (time.Duration, error) {
+	val := os.Getenv(key)
+	if val == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(val)
+}
+
+// parseEnvBool safely parses an environment variable as a boolean
+func parseEnvBool(key string) (bool, error) {
+	val := os.Getenv(key)
+	if val == "" {
+		return false, nil
+	}
+	return strconv.ParseBool(val)
+}
+
+// runWithContextCancellation runs a cache operation with proper context cancellation handling
+func runWithContextCancellation[T any](ctx context.Context, operation func() <-chan T) <-chan T {
+	result := make(chan T, 1)
+	go func() {
+		defer close(result)
+
+		// Check if context is already cancelled
+		select {
+		case <-ctx.Done():
+			// Return a zero value with context error
+			var zero T
+			result <- zero
+			return
+		default:
+		}
+
+		// Create a channel to receive the operation result
+		operationChan := operation()
+
+		// Wait for either the operation result or context cancellation
+		select {
+		case operationResult := <-operationChan:
+			result <- operationResult
+		case <-ctx.Done():
+			// Return a zero value with context error
+			var zero T
+			result <- zero
+		}
+	}()
+	return result
 }
 
 // loadFromEnvironment loads configuration from environment variables
@@ -108,45 +178,34 @@ func loadFromEnvironment(config *CacheConfig) error {
 
 	// Memory store configuration
 	if config.Memory != nil {
-		if val := os.Getenv("CACHEX_MEMORY_MAX_SIZE"); val != "" {
-			if maxSize, err := strconv.Atoi(val); err == nil {
-				config.Memory.MaxSize = maxSize
-			}
+		if maxSize, err := parseEnvInt("CACHEX_MEMORY_MAX_SIZE"); err != nil {
+			return fmt.Errorf("invalid CACHEX_MEMORY_MAX_SIZE: %w", err)
+		} else if maxSize > 0 {
+			config.Memory.MaxSize = maxSize
 		}
-		if val := os.Getenv("CACHEX_MEMORY_MAX_MEMORY_MB"); val != "" {
-			if maxMemoryMB, err := strconv.Atoi(val); err == nil {
-				config.Memory.MaxMemoryMB = maxMemoryMB
-			}
+
+		if maxMemoryMB, err := parseEnvInt("CACHEX_MEMORY_MAX_MEMORY_MB"); err != nil {
+			return fmt.Errorf("invalid CACHEX_MEMORY_MAX_MEMORY_MB: %w", err)
+		} else if maxMemoryMB > 0 {
+			config.Memory.MaxMemoryMB = maxMemoryMB
 		}
-		if val := os.Getenv("CACHEX_MEMORY_DEFAULT_TTL"); val != "" {
-			if ttl, err := time.ParseDuration(val); err == nil {
-				config.Memory.DefaultTTL = ttl
-			}
+
+		if ttl, err := parseEnvDuration("CACHEX_MEMORY_DEFAULT_TTL"); err != nil {
+			return fmt.Errorf("invalid CACHEX_MEMORY_DEFAULT_TTL: %w", err)
+		} else if ttl > 0 {
+			config.Memory.DefaultTTL = ttl
 		}
-		if val := os.Getenv("CACHEX_MEMORY_CLEANUP_INTERVAL"); val != "" {
-			if interval, err := time.ParseDuration(val); err == nil {
-				config.Memory.CleanupInterval = interval
-			}
+
+		if interval, err := parseEnvDuration("CACHEX_MEMORY_CLEANUP_INTERVAL"); err != nil {
+			return fmt.Errorf("invalid CACHEX_MEMORY_CLEANUP_INTERVAL: %w", err)
+		} else if interval > 0 {
+			config.Memory.CleanupInterval = interval
 		}
+
 		if val := os.Getenv("CACHEX_MEMORY_EVICTION_POLICY"); val != "" {
 			config.Memory.EvictionPolicy = EvictionPolicy(val)
 		}
-		// Set defaults if not provided
-		if config.Memory.MaxSize == 0 {
-			config.Memory.MaxSize = 10000
-		}
-		if config.Memory.MaxMemoryMB == 0 {
-			config.Memory.MaxMemoryMB = 100
-		}
-		if config.Memory.DefaultTTL == 0 {
-			config.Memory.DefaultTTL = 5 * time.Minute
-		}
-		if config.Memory.CleanupInterval == 0 {
-			config.Memory.CleanupInterval = 1 * time.Minute
-		}
-		if config.Memory.EvictionPolicy == "" {
-			config.Memory.EvictionPolicy = EvictionPolicyLRU
-		}
+		// Note: Default values are now set centrally in setDefaultValues function
 	}
 
 	// Redis store configuration
@@ -157,55 +216,59 @@ func loadFromEnvironment(config *CacheConfig) error {
 		if val := os.Getenv("CACHEX_REDIS_PASSWORD"); val != "" {
 			config.Redis.Password = val
 		}
-		if val := os.Getenv("CACHEX_REDIS_DB"); val != "" {
-			if db, err := strconv.Atoi(val); err == nil {
-				config.Redis.DB = db
-			}
+		if db, err := parseEnvInt("CACHEX_REDIS_DB"); err != nil {
+			return fmt.Errorf("invalid CACHEX_REDIS_DB: %w", err)
+		} else if db >= 0 {
+			config.Redis.DB = db
 		}
-		if val := os.Getenv("CACHEX_REDIS_POOL_SIZE"); val != "" {
-			if poolSize, err := strconv.Atoi(val); err == nil {
-				config.Redis.PoolSize = poolSize
-			}
+		if poolSize, err := parseEnvInt("CACHEX_REDIS_POOL_SIZE"); err != nil {
+			return fmt.Errorf("invalid CACHEX_REDIS_POOL_SIZE: %w", err)
+		} else if poolSize > 0 {
+			config.Redis.PoolSize = poolSize
 		}
-		if val := os.Getenv("CACHEX_REDIS_DIAL_TIMEOUT"); val != "" {
-			if timeout, err := time.ParseDuration(val); err == nil {
-				config.Redis.DialTimeout = timeout
-			}
+		if timeout, err := parseEnvDuration("CACHEX_REDIS_DIAL_TIMEOUT"); err != nil {
+			return fmt.Errorf("invalid CACHEX_REDIS_DIAL_TIMEOUT: %w", err)
+		} else if timeout > 0 {
+			config.Redis.DialTimeout = timeout
 		}
-		if val := os.Getenv("CACHEX_REDIS_READ_TIMEOUT"); val != "" {
-			if timeout, err := time.ParseDuration(val); err == nil {
-				config.Redis.ReadTimeout = timeout
-			}
+		if timeout, err := parseEnvDuration("CACHEX_REDIS_READ_TIMEOUT"); err != nil {
+			return fmt.Errorf("invalid CACHEX_REDIS_READ_TIMEOUT: %w", err)
+		} else if timeout > 0 {
+			config.Redis.ReadTimeout = timeout
 		}
-		if val := os.Getenv("CACHEX_REDIS_WRITE_TIMEOUT"); val != "" {
-			if timeout, err := time.ParseDuration(val); err == nil {
-				config.Redis.WriteTimeout = timeout
-			}
+		if timeout, err := parseEnvDuration("CACHEX_REDIS_WRITE_TIMEOUT"); err != nil {
+			return fmt.Errorf("invalid CACHEX_REDIS_WRITE_TIMEOUT: %w", err)
+		} else if timeout > 0 {
+			config.Redis.WriteTimeout = timeout
 		}
 		if val := os.Getenv("CACHEX_REDIS_TLS_ENABLED"); val != "" {
 			if config.Redis.TLS == nil {
 				config.Redis.TLS = &TLSConfig{}
 			}
-			config.Redis.TLS.Enabled = strings.ToLower(val) == "true"
+			if enabled, err := parseEnvBool("CACHEX_REDIS_TLS_ENABLED"); err != nil {
+				return fmt.Errorf("invalid CACHEX_REDIS_TLS_ENABLED: %w", err)
+			} else {
+				config.Redis.TLS.Enabled = enabled
+			}
 		}
 	}
 
 	// Ristretto store configuration
 	if config.Ristretto != nil {
-		if val := os.Getenv("CACHEX_RISTRETTO_MAX_ITEMS"); val != "" {
-			if maxItems, err := strconv.Atoi(val); err == nil {
-				config.Ristretto.MaxItems = int64(maxItems)
-			}
+		if maxItems, err := parseEnvInt("CACHEX_RISTRETTO_MAX_ITEMS"); err != nil {
+			return fmt.Errorf("invalid CACHEX_RISTRETTO_MAX_ITEMS: %w", err)
+		} else if maxItems > 0 {
+			config.Ristretto.MaxItems = int64(maxItems)
 		}
-		if val := os.Getenv("CACHEX_RISTRETTO_MAX_MEMORY_BYTES"); val != "" {
-			if maxMemory, err := strconv.ParseInt(val, 10, 64); err == nil {
-				config.Ristretto.MaxMemoryBytes = maxMemory
-			}
+		if maxMemory, err := parseEnvInt64("CACHEX_RISTRETTO_MAX_MEMORY_BYTES"); err != nil {
+			return fmt.Errorf("invalid CACHEX_RISTRETTO_MAX_MEMORY_BYTES: %w", err)
+		} else if maxMemory > 0 {
+			config.Ristretto.MaxMemoryBytes = maxMemory
 		}
-		if val := os.Getenv("CACHEX_RISTRETTO_DEFAULT_TTL"); val != "" {
-			if ttl, err := time.ParseDuration(val); err == nil {
-				config.Ristretto.DefaultTTL = ttl
-			}
+		if ttl, err := parseEnvDuration("CACHEX_RISTRETTO_DEFAULT_TTL"); err != nil {
+			return fmt.Errorf("invalid CACHEX_RISTRETTO_DEFAULT_TTL: %w", err)
+		} else if ttl > 0 {
+			config.Ristretto.DefaultTTL = ttl
 		}
 	}
 
@@ -220,20 +283,20 @@ func loadFromEnvironment(config *CacheConfig) error {
 	}
 
 	// General cache settings
-	if val := os.Getenv("CACHEX_DEFAULT_TTL"); val != "" {
-		if ttl, err := time.ParseDuration(val); err == nil {
-			config.DefaultTTL = ttl
-		}
+	if ttl, err := parseEnvDuration("CACHEX_DEFAULT_TTL"); err != nil {
+		return fmt.Errorf("invalid CACHEX_DEFAULT_TTL: %w", err)
+	} else if ttl > 0 {
+		config.DefaultTTL = ttl
 	}
-	if val := os.Getenv("CACHEX_MAX_RETRIES"); val != "" {
-		if maxRetries, err := strconv.Atoi(val); err == nil {
-			config.MaxRetries = maxRetries
-		}
+	if maxRetries, err := parseEnvInt("CACHEX_MAX_RETRIES"); err != nil {
+		return fmt.Errorf("invalid CACHEX_MAX_RETRIES: %w", err)
+	} else if maxRetries >= 0 {
+		config.MaxRetries = maxRetries
 	}
-	if val := os.Getenv("CACHEX_RETRY_DELAY"); val != "" {
-		if retryDelay, err := time.ParseDuration(val); err == nil {
-			config.RetryDelay = retryDelay
-		}
+	if retryDelay, err := parseEnvDuration("CACHEX_RETRY_DELAY"); err != nil {
+		return fmt.Errorf("invalid CACHEX_RETRY_DELAY: %w", err)
+	} else if retryDelay > 0 {
+		config.RetryDelay = retryDelay
 	}
 
 	// Codec settings
@@ -245,80 +308,126 @@ func loadFromEnvironment(config *CacheConfig) error {
 	if config.Observability == nil {
 		config.Observability = &ObservabilityConfig{}
 	}
-	if val := os.Getenv("CACHEX_OBSERVABILITY_ENABLE_METRICS"); val != "" {
-		config.Observability.EnableMetrics = strings.ToLower(val) == "true"
+	if enabled, err := parseEnvBool("CACHEX_OBSERVABILITY_ENABLE_METRICS"); err != nil {
+		return fmt.Errorf("invalid CACHEX_OBSERVABILITY_ENABLE_METRICS: %w", err)
+	} else {
+		config.Observability.EnableMetrics = enabled
 	}
-	if val := os.Getenv("CACHEX_OBSERVABILITY_ENABLE_TRACING"); val != "" {
-		config.Observability.EnableTracing = strings.ToLower(val) == "true"
+	if enabled, err := parseEnvBool("CACHEX_OBSERVABILITY_ENABLE_TRACING"); err != nil {
+		return fmt.Errorf("invalid CACHEX_OBSERVABILITY_ENABLE_TRACING: %w", err)
+	} else {
+		config.Observability.EnableTracing = enabled
 	}
-	if val := os.Getenv("CACHEX_OBSERVABILITY_ENABLE_LOGGING"); val != "" {
-		config.Observability.EnableLogging = strings.ToLower(val) == "true"
-	}
-
-	// Security settings
-	if config.Security == nil {
-		config.Security = &SecurityConfig{}
-	}
-	if val := os.Getenv("CACHEX_SECURITY_MAX_KEY_LENGTH"); val != "" {
-		if maxKeyLength, err := strconv.Atoi(val); err == nil {
-			if config.Security.Validation == nil {
-				config.Security.Validation = &Config{}
-			}
-			config.Security.Validation.MaxKeyLength = maxKeyLength
-		}
-	}
-	if val := os.Getenv("CACHEX_SECURITY_MAX_VALUE_SIZE"); val != "" {
-		if maxValueSize, err := strconv.Atoi(val); err == nil {
-			if config.Security.Validation == nil {
-				config.Security.Validation = &Config{}
-			}
-			config.Security.Validation.MaxValueSize = maxValueSize
-		}
+	if enabled, err := parseEnvBool("CACHEX_OBSERVABILITY_ENABLE_LOGGING"); err != nil {
+		return fmt.Errorf("invalid CACHEX_OBSERVABILITY_ENABLE_LOGGING: %w", err)
+	} else {
+		config.Observability.EnableLogging = enabled
 	}
 
 	// Tagging settings
 	if config.Tagging == nil {
 		config.Tagging = &TagConfig{}
 	}
-	if val := os.Getenv("CACHEX_TAGGING_ENABLE_PERSISTENCE"); val != "" {
-		config.Tagging.EnablePersistence = strings.ToLower(val) == "true"
+	if enabled, err := parseEnvBool("CACHEX_TAGGING_ENABLE_PERSISTENCE"); err != nil {
+		return fmt.Errorf("invalid CACHEX_TAGGING_ENABLE_PERSISTENCE: %w", err)
+	} else {
+		config.Tagging.EnablePersistence = enabled
 	}
-	if val := os.Getenv("CACHEX_TAGGING_TAG_MAPPING_TTL"); val != "" {
-		if ttl, err := time.ParseDuration(val); err == nil {
-			config.Tagging.TagMappingTTL = ttl
-		}
+	if ttl, err := parseEnvDuration("CACHEX_TAGGING_TAG_MAPPING_TTL"); err != nil {
+		return fmt.Errorf("invalid CACHEX_TAGGING_TAG_MAPPING_TTL: %w", err)
+	} else if ttl > 0 {
+		config.Tagging.TagMappingTTL = ttl
 	}
 
 	// Refresh ahead settings
 	if config.RefreshAhead == nil {
 		config.RefreshAhead = &RefreshAheadConfig{}
 	}
-	if val := os.Getenv("CACHEX_REFRESH_AHEAD_ENABLED"); val != "" {
-		config.RefreshAhead.Enabled = strings.ToLower(val) == "true"
+	if enabled, err := parseEnvBool("CACHEX_REFRESH_AHEAD_ENABLED"); err != nil {
+		return fmt.Errorf("invalid CACHEX_REFRESH_AHEAD_ENABLED: %w", err)
+	} else {
+		config.RefreshAhead.Enabled = enabled
 	}
-	if val := os.Getenv("CACHEX_REFRESH_AHEAD_REFRESH_INTERVAL"); val != "" {
-		if interval, err := time.ParseDuration(val); err == nil {
-			config.RefreshAhead.RefreshInterval = interval
-		}
+	if interval, err := parseEnvDuration("CACHEX_REFRESH_AHEAD_REFRESH_INTERVAL"); err != nil {
+		return fmt.Errorf("invalid CACHEX_REFRESH_AHEAD_REFRESH_INTERVAL: %w", err)
+	} else if interval > 0 {
+		config.RefreshAhead.RefreshInterval = interval
 	}
 
 	// GORM settings
 	if config.GORM == nil {
 		config.GORM = &GormConfig{}
 	}
-	if val := os.Getenv("CACHEX_GORM_ENABLE_READ_THROUGH"); val != "" {
-		config.GORM.EnableReadThrough = strings.ToLower(val) == "true"
+	if enabled, err := parseEnvBool("CACHEX_GORM_ENABLE_READ_THROUGH"); err != nil {
+		return fmt.Errorf("invalid CACHEX_GORM_ENABLE_READ_THROUGH: %w", err)
+	} else {
+		config.GORM.EnableReadThrough = enabled
 	}
-	if val := os.Getenv("CACHEX_GORM_ENABLE_INVALIDATION"); val != "" {
-		config.GORM.EnableInvalidation = strings.ToLower(val) == "true"
+	if enabled, err := parseEnvBool("CACHEX_GORM_ENABLE_INVALIDATION"); err != nil {
+		return fmt.Errorf("invalid CACHEX_GORM_ENABLE_INVALIDATION: %w", err)
+	} else {
+		config.GORM.EnableInvalidation = enabled
 	}
 
 	return nil
 }
 
-// validateConfig validates the configuration
-func validateConfig(config *CacheConfig) error {
-	// Check that only one cache store is configured
+// setDefaultValues sets default values for configuration fields
+func setDefaultValues(config *CacheConfig) {
+	// Set default TTL if not specified
+	if config.DefaultTTL == 0 {
+		config.DefaultTTL = 5 * time.Minute
+	}
+
+	// Set default retry settings if not specified
+	if config.MaxRetries == 0 {
+		config.MaxRetries = 3
+	}
+	if config.RetryDelay == 0 {
+		config.RetryDelay = 100 * time.Millisecond
+	}
+
+	// Set default codec if not specified
+	if config.Codec == "" {
+		config.Codec = "json"
+	}
+
+	// Set default observability settings if not specified
+	if config.Observability == nil {
+		config.Observability = &ObservabilityConfig{
+			EnableMetrics: true,
+			EnableTracing: false,
+			EnableLogging: false,
+		}
+	}
+
+	// Set default tagging settings if not specified
+	if config.Tagging == nil {
+		config.Tagging = &TagConfig{
+			EnablePersistence: false,
+			TagMappingTTL:     1 * time.Hour,
+		}
+	}
+
+	// Set default refresh ahead settings if not specified
+	if config.RefreshAhead == nil {
+		config.RefreshAhead = &RefreshAheadConfig{
+			Enabled:         false,
+			RefreshInterval: 5 * time.Minute,
+		}
+	}
+
+	// Set default GORM settings if not specified
+	if config.GORM == nil {
+		config.GORM = &GormConfig{
+			EnableReadThrough:  false,
+			EnableInvalidation: false,
+		}
+	}
+}
+
+// validateStoreConfiguration validates that exactly one store type is configured
+func validateStoreConfiguration(config *CacheConfig) error {
 	storeCount := 0
 	if config.Memory != nil {
 		storeCount++
@@ -334,13 +443,42 @@ func validateConfig(config *CacheConfig) error {
 	}
 
 	if storeCount == 0 {
-		return fmt.Errorf("at least one cache store must be configured (memory, redis, ristretto, or layered)")
+		return fmt.Errorf("no store configuration provided - must specify one of: memory, redis, ristretto, or layered")
 	}
 	if storeCount > 1 {
-		return fmt.Errorf("only one cache store can be configured per instance, found %d stores", storeCount)
+		return fmt.Errorf("multiple store configurations provided - only one store type can be active")
 	}
 
-	// Validate memory store configuration
+	return nil
+}
+
+// validateConfig validates the configuration using go-validatorx with caching
+func validateConfig(config *CacheConfig) error {
+	// Set default values first
+	setDefaultValues(config)
+
+	// Validate store configuration
+	if err := validateStoreConfiguration(config); err != nil {
+		return err
+	}
+
+	// Check if validation cache is initialized
+	if GlobalValidationCache == nil {
+		// Fallback to direct validation or return error
+		return fmt.Errorf("validation cache not initialized")
+	}
+
+	// Use validation cache for improved performance
+	valid, err := GlobalValidationCache.IsValid(config)
+	if !valid {
+		return err
+	}
+	return nil
+}
+
+// validateConfigurationCompleteness performs final validation to ensure the configuration is complete
+func validateConfigurationCompleteness(config *CacheConfig) error {
+	// Validate that required fields are set based on the store type
 	if config.Memory != nil {
 		if config.Memory.MaxSize <= 0 {
 			return fmt.Errorf("memory store max_size must be greater than 0")
@@ -351,25 +489,14 @@ func validateConfig(config *CacheConfig) error {
 		if config.Memory.DefaultTTL < 0 {
 			return fmt.Errorf("memory store default_ttl cannot be negative")
 		}
-		if config.Memory.EvictionPolicy != "" {
-			validPolicies := []EvictionPolicy{EvictionPolicyLRU, EvictionPolicyLFU, EvictionPolicyTTL}
-			valid := false
-			for _, policy := range validPolicies {
-				if config.Memory.EvictionPolicy == policy {
-					valid = true
-					break
-				}
-			}
-			if !valid {
-				return fmt.Errorf("memory store eviction_policy must be one of: %v", validPolicies)
-			}
+		if config.Memory.CleanupInterval < 0 {
+			return fmt.Errorf("memory store cleanup_interval cannot be negative")
 		}
 	}
 
-	// Validate Redis store configuration
 	if config.Redis != nil {
 		if config.Redis.Addr == "" {
-			return fmt.Errorf("redis store addr is required")
+			return fmt.Errorf("redis store address is required")
 		}
 		if config.Redis.PoolSize <= 0 {
 			return fmt.Errorf("redis store pool_size must be greater than 0")
@@ -385,7 +512,6 @@ func validateConfig(config *CacheConfig) error {
 		}
 	}
 
-	// Validate Ristretto store configuration
 	if config.Ristretto != nil {
 		if config.Ristretto.MaxItems <= 0 {
 			return fmt.Errorf("ristretto store max_items must be greater than 0")
@@ -398,33 +524,21 @@ func validateConfig(config *CacheConfig) error {
 		}
 	}
 
-	// Validate layered store configuration
 	if config.Layered != nil {
-		if config.Layered.ReadPolicy != "" {
-			validPolicies := []ReadPolicy{ReadPolicyThrough, ReadPolicyAside, ReadPolicyAround}
-			valid := false
-			for _, policy := range validPolicies {
-				if config.Layered.ReadPolicy == policy {
-					valid = true
-					break
-				}
-			}
-			if !valid {
-				return fmt.Errorf("layered store read_policy must be one of: %v", validPolicies)
-			}
+		if config.Layered.MemoryConfig == nil {
+			return fmt.Errorf("layered store memory_config is required")
 		}
-		if config.Layered.WritePolicy != "" {
-			validPolicies := []WritePolicy{WritePolicyThrough, WritePolicyBehind, WritePolicyAround}
-			valid := false
-			for _, policy := range validPolicies {
-				if config.Layered.WritePolicy == policy {
-					valid = true
-					break
-				}
-			}
-			if !valid {
-				return fmt.Errorf("layered store write_policy must be one of: %v", validPolicies)
-			}
+		if config.Layered.SyncInterval < 0 {
+			return fmt.Errorf("layered store sync_interval cannot be negative")
+		}
+		if config.Layered.MaxConcurrentSync <= 0 {
+			return fmt.Errorf("layered store max_concurrent_sync must be greater than 0")
+		}
+		if config.Layered.AsyncOperationTimeout < 0 {
+			return fmt.Errorf("layered store async_operation_timeout cannot be negative")
+		}
+		if config.Layered.BackgroundSyncTimeout < 0 {
+			return fmt.Errorf("layered store background_sync_timeout cannot be negative")
 		}
 	}
 
@@ -440,35 +554,8 @@ func validateConfig(config *CacheConfig) error {
 	}
 
 	// Validate codec
-	if config.Codec != "" {
-		validCodecs := []string{"json", "msgpack"}
-		valid := false
-		for _, codec := range validCodecs {
-			if config.Codec == codec {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("codec must be one of: %v", validCodecs)
-		}
-	}
-
-	// Validate security settings
-	if config.Security != nil && config.Security.Validation != nil {
-		if config.Security.Validation.MaxKeyLength <= 0 {
-			return fmt.Errorf("security validation max_key_length must be greater than 0")
-		}
-		if config.Security.Validation.MaxValueSize <= 0 {
-			return fmt.Errorf("security validation max_value_size must be greater than 0")
-		}
-	}
-
-	// Validate refresh ahead settings
-	if config.RefreshAhead != nil {
-		if config.RefreshAhead.Enabled && config.RefreshAhead.RefreshInterval <= 0 {
-			return fmt.Errorf("refresh_ahead refresh_interval must be greater than 0 when enabled")
-		}
+	if config.Codec != "" && config.Codec != "json" && config.Codec != "msgpack" {
+		return fmt.Errorf("codec must be either 'json' or 'msgpack'")
 	}
 
 	return nil
@@ -487,8 +574,22 @@ func CreateStoreFromConfig(config *CacheConfig) (Store, error) {
 	}
 	if config.Layered != nil {
 		// For layered store, we need to create the L2 store first
-		// This is a simplified implementation - in practice, you'd want to configure L2 store separately
-		l2Store, err := NewRedisStore(DefaultRedisConfig())
+		// Use the L2 store configuration from the layered config if available
+		var l2Store Store
+		var err error
+
+		if config.Layered.L2StoreConfig != nil {
+			// Use configured L2 store
+			l2Store, err = CreateStoreFromConfig(&CacheConfig{
+				Redis:     config.Layered.L2StoreConfig.Redis,
+				Ristretto: config.Layered.L2StoreConfig.Ristretto,
+				Memory:    config.Layered.L2StoreConfig.Memory,
+			})
+		} else {
+			// Fallback to default Redis config
+			l2Store, err = NewRedisStore(DefaultRedisConfig())
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to create L2 store for layered cache: %w", err)
 		}
@@ -593,11 +694,28 @@ func (w *anyCacheWrapper) Get(ctx context.Context, key string) <-chan AsyncAnyCa
 	result := make(chan AsyncAnyCacheResult, 1)
 	go func() {
 		defer close(result)
-		cacheResult := <-w.cache.Get(ctx, key)
-		result <- AsyncAnyCacheResult{
-			Value: cacheResult.Value,
-			Found: cacheResult.Found,
-			Error: cacheResult.Error,
+
+		// Check if context is already cancelled
+		select {
+		case <-ctx.Done():
+			result <- AsyncAnyCacheResult{Error: ctx.Err()}
+			return
+		default:
+		}
+
+		// Create a channel to receive the cache result
+		cacheResultChan := w.cache.Get(ctx, key)
+
+		// Wait for either the cache result or context cancellation
+		select {
+		case cacheResult := <-cacheResultChan:
+			result <- AsyncAnyCacheResult{
+				Value: cacheResult.Value,
+				Found: cacheResult.Found,
+				Error: cacheResult.Error,
+			}
+		case <-ctx.Done():
+			result <- AsyncAnyCacheResult{Error: ctx.Err()}
 		}
 	}()
 	return result
@@ -607,8 +725,25 @@ func (w *anyCacheWrapper) Set(ctx context.Context, key string, val any, ttl time
 	result := make(chan AsyncAnyCacheResult, 1)
 	go func() {
 		defer close(result)
-		cacheResult := <-w.cache.Set(ctx, key, val, ttl)
-		result <- AsyncAnyCacheResult{Error: cacheResult.Error}
+
+		// Check if context is already cancelled
+		select {
+		case <-ctx.Done():
+			result <- AsyncAnyCacheResult{Error: ctx.Err()}
+			return
+		default:
+		}
+
+		// Create a channel to receive the cache result
+		cacheResultChan := w.cache.Set(ctx, key, val, ttl)
+
+		// Wait for either the cache result or context cancellation
+		select {
+		case cacheResult := <-cacheResultChan:
+			result <- AsyncAnyCacheResult{Error: cacheResult.Error}
+		case <-ctx.Done():
+			result <- AsyncAnyCacheResult{Error: ctx.Err()}
+		}
 	}()
 	return result
 }
@@ -671,9 +806,9 @@ func (w *anyCacheWrapper) TTL(ctx context.Context, key string) <-chan AsyncAnyCa
 	go func() {
 		defer close(result)
 		cacheResult := <-w.cache.TTL(ctx, key)
-		// Note: AsyncAnyCacheResult doesn't have TTL field, using Found to indicate existence
 		result <- AsyncAnyCacheResult{
 			Found: cacheResult.Found,
+			TTL:   cacheResult.TTL,
 			Error: cacheResult.Error,
 		}
 	}()
@@ -685,9 +820,9 @@ func (w *anyCacheWrapper) IncrBy(ctx context.Context, key string, delta int64, t
 	go func() {
 		defer close(result)
 		cacheResult := <-w.cache.IncrBy(ctx, key, delta, ttlIfCreate)
-		// Note: AsyncAnyCacheResult doesn't have Result field, using Value
+		// Convert int64 result to any for AsyncAnyCacheResult
 		result <- AsyncAnyCacheResult{
-			Value: cacheResult.Value,
+			Value: cacheResult.Int,
 			Error: cacheResult.Error,
 		}
 	}()

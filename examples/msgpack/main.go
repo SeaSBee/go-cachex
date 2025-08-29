@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/SeaSBee/go-cachex"
@@ -51,7 +52,10 @@ func exampleJSONCodec() {
 	jsonCodec := cachex.NewJSONCodec()
 
 	// Create key builder
-	keyBuilder := cachex.NewBuilder("myapp", "dev", "secret123")
+	keyBuilder, err := cachex.NewBuilder("myapp", "dev", "secret123")
+	if err != nil {
+		log.Fatalf("Failed to create key builder: %v", err)
+	}
 
 	// Create cache with JSON codec
 	c, err := cachex.New[User](

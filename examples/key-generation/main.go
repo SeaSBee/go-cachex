@@ -76,7 +76,11 @@ func demoBasicKeyGeneration() {
 	fmt.Println("1. Basic Key Generation")
 	fmt.Println("=========================")
 
-	builder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create builder: %v\n", err)
+		return
+	}
 
 	// Entity keys
 	userKey := builder.Build("user", "12345")
@@ -104,7 +108,11 @@ func demoNamespacedKeys() {
 	fmt.Println("2. Namespaced Keys")
 	fmt.Println("===================")
 
-	builder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create builder: %v\n", err)
+		return
+	}
 
 	// Demonstrate the exact format you specified
 	userKey := builder.Build("user", "12345")
@@ -125,7 +133,11 @@ func demoListKeysWithHashing() {
 	fmt.Println("3. List Keys with Filter Hashing")
 	fmt.Println("=================================")
 
-	builder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create builder: %v\n", err)
+		return
+	}
 
 	// List key without filters
 	allUsersKey := builder.BuildList("users", nil)
@@ -169,7 +181,11 @@ func demoCompositeKeys() {
 	fmt.Println("4. Composite Keys for Joins")
 	fmt.Println("============================")
 
-	builder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create builder: %v\n", err)
+		return
+	}
 
 	// User-Order relationships
 	userOrderKey := builder.BuildComposite("user", "123", "order", "456")
@@ -195,7 +211,11 @@ func demoSessionKeys() {
 	fmt.Println("5. Session/Token Keys")
 	fmt.Println("=====================")
 
-	builder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create builder: %v\n", err)
+		return
+	}
 
 	// Session keys
 	sessionID := "abc123def456ghi789"
@@ -219,7 +239,11 @@ func demoHelperMethods() {
 	fmt.Println("6. Helper Methods")
 	fmt.Println("=================")
 
-	builder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create builder: %v\n", err)
+		return
+	}
 
 	// All the helper methods you specified
 	userKey := builder.BuildUser("12345")
@@ -246,10 +270,18 @@ func demoHMACSecurity() {
 	fmt.Println("=======================")
 
 	// Builder with secret
-	builderWithSecret := cachex.NewBuilder("seasbee", "prod", "secret123")
+	builderWithSecret, err1 := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err1 != nil {
+		fmt.Printf("Failed to create builder with secret: %v\n", err1)
+		return
+	}
 
 	// Builder without secret
-	builderWithoutSecret := cachex.NewBuilder("seasbee", "prod", "")
+	builderWithoutSecret, err2 := cachex.NewBuilder("seasbee", "prod", "")
+	if err2 != nil {
+		fmt.Printf("Failed to create builder without secret: %v\n", err2)
+		return
+	}
 
 	// Test data
 	filters := map[string]any{
@@ -274,7 +306,11 @@ func demoHMACSecurity() {
 	fmt.Printf("Consistent without secret: %t\n", keyWithoutSecret == keyWithoutSecret2)
 
 	// Test different secrets produce different hashes
-	builderWithSecret2 := cachex.NewBuilder("seasbee", "prod", "different_secret")
+	builderWithSecret2, err3 := cachex.NewBuilder("seasbee", "prod", "different_secret")
+	if err3 != nil {
+		fmt.Printf("Failed to create builder with different secret: %v\n", err3)
+		return
+	}
 	keyWithSecret3 := builderWithSecret2.BuildList("users", filters)
 	fmt.Printf("Different secrets produce different keys: %t\n", keyWithSecret != keyWithSecret3)
 	fmt.Println()
@@ -289,7 +325,11 @@ func demoMultiEnvironmentIsolation() {
 	userID := "12345"
 
 	for _, env := range environments {
-		builder := cachex.NewBuilder("seasbee", env, "secret123")
+		builder, err := cachex.NewBuilder("seasbee", env, "secret123")
+		if err != nil {
+			fmt.Printf("Failed to create builder for env %s: %v\n", env, err)
+			continue
+		}
 		userKey := builder.BuildUser(userID)
 		fmt.Printf("%s: %s\n", env, userKey)
 	}
@@ -300,7 +340,11 @@ func demoMultiEnvironmentIsolation() {
 
 	fmt.Printf("\nDifferent Applications:\n")
 	for _, app := range apps {
-		builder := cachex.NewBuilder(app, env, "secret123")
+		builder, err := cachex.NewBuilder(app, env, "secret123")
+		if err != nil {
+			fmt.Printf("Failed to create builder for app %s: %v\n", app, err)
+			continue
+		}
 		userKey := builder.BuildUser(userID)
 		fmt.Printf("%s: %s\n", app, userKey)
 	}
@@ -320,7 +364,11 @@ func demoCacheIntegration() {
 	defer memoryStore.Close()
 
 	// Create key builder
-	keyBuilder := cachex.NewBuilder("seasbee", "prod", "secret123")
+	keyBuilder, err := cachex.NewBuilder("seasbee", "prod", "secret123")
+	if err != nil {
+		fmt.Printf("Failed to create key builder: %v\n", err)
+		return
+	}
 
 	// Create codec
 	jsonCodec := cachex.NewJSONCodec()

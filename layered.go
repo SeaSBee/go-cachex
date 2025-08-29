@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/seasbee/go-logx"
@@ -20,21 +21,50 @@ type LayeredStore struct {
 
 	// Statistics
 	stats *LayeredStats
+
+	// Background sync management
+	syncCtx    context.Context
+	syncCancel context.CancelFunc
+	syncWg     sync.WaitGroup
+	syncOnce   sync.Once // Ensure background sync is started only once
+
+	// Concurrency control
+	asyncSemaphore chan struct{}
+	asyncMu        sync.RWMutex // Protect asyncSemaphore access
+
+	// State management
+	closed int32        // Atomic flag for closed state
+	mu     sync.RWMutex // Protect state changes
 }
 
 // LayeredConfig defines layered store configuration
 type LayeredConfig struct {
 	// Memory store configuration
-	MemoryConfig *MemoryConfig
+	MemoryConfig *MemoryConfig `validate:"required"`
+
+	// L2 store configuration (optional - if not provided, will use default Redis)
+	L2StoreConfig *L2StoreConfig `validate:"omitempty"`
 
 	// Layering behavior
-	WritePolicy  WritePolicy   // Write-through, write-behind, or write-around
-	ReadPolicy   ReadPolicy    // Read-through, read-aside, or read-around
-	SyncInterval time.Duration // How often to sync L1 with L2
+	WritePolicy  WritePolicy   `validate:"omitempty,oneof:through behind around"` // Write-through, write-behind, or write-around
+	ReadPolicy   ReadPolicy    `validate:"omitempty,oneof:through aside around"`  // Read-through, read-aside, or read-around
+	SyncInterval time.Duration `validate:"gte:1000000000,lte:3600000000000"`      // How often to sync L1 with L2 (1s to 1h in nanoseconds)
 	EnableStats  bool          // Enable detailed statistics
 
 	// Performance tuning
-	MaxConcurrentSync int // Maximum concurrent sync operations
+	MaxConcurrentSync int `validate:"min:1,max:100"` // Maximum concurrent sync operations
+
+	// Timeout configurations
+	AsyncOperationTimeout time.Duration `validate:"gte:1000000000"` // Timeout for async operations (1s minimum)
+	BackgroundSyncTimeout time.Duration `validate:"gte:1000000000"` // Timeout for background sync operations
+}
+
+// L2StoreConfig defines L2 store configuration for layered cache
+type L2StoreConfig struct {
+	Type      string           `yaml:"type" json:"type"` // "redis", "ristretto", or "memory"
+	Redis     *RedisConfig     `yaml:"redis" json:"redis"`
+	Ristretto *RistrettoConfig `yaml:"ristretto" json:"ristretto"`
+	Memory    *MemoryConfig    `yaml:"memory" json:"memory"`
 }
 
 // WritePolicy defines how writes are handled across layers
@@ -58,36 +88,42 @@ const (
 // DefaultLayeredConfig returns a default configuration
 func DefaultLayeredConfig() *LayeredConfig {
 	return &LayeredConfig{
-		MemoryConfig:      DefaultMemoryConfig(),
-		WritePolicy:       WritePolicyThrough,
-		ReadPolicy:        ReadPolicyThrough,
-		SyncInterval:      5 * time.Minute,
-		EnableStats:       true,
-		MaxConcurrentSync: 10,
+		MemoryConfig:          DefaultMemoryConfig(),
+		WritePolicy:           WritePolicyThrough,
+		ReadPolicy:            ReadPolicyThrough,
+		SyncInterval:          5 * time.Minute,
+		EnableStats:           true,
+		MaxConcurrentSync:     10,
+		AsyncOperationTimeout: 30 * time.Second,
+		BackgroundSyncTimeout: 60 * time.Second,
 	}
 }
 
 // HighPerfLayeredConfig returns a configuration optimized for high throughput
 func HighPerfLayeredConfig() *LayeredConfig {
 	return &LayeredConfig{
-		MemoryConfig:      HighPerformanceMemoryConfig(),
-		WritePolicy:       WritePolicyBehind,
-		ReadPolicy:        ReadPolicyThrough,
-		SyncInterval:      1 * time.Minute,
-		EnableStats:       true,
-		MaxConcurrentSync: 50,
+		MemoryConfig:          HighPerformanceMemoryConfig(),
+		WritePolicy:           WritePolicyBehind,
+		ReadPolicy:            ReadPolicyThrough,
+		SyncInterval:          1 * time.Minute,
+		EnableStats:           true,
+		MaxConcurrentSync:     50,
+		AsyncOperationTimeout: 30 * time.Second,
+		BackgroundSyncTimeout: 60 * time.Second,
 	}
 }
 
 // ResourceLayeredConfig returns a configuration for resource-constrained environments
 func ResourceLayeredConfig() *LayeredConfig {
 	return &LayeredConfig{
-		MemoryConfig:      ResourceConstrainedMemoryConfig(),
-		WritePolicy:       WritePolicyAround,
-		ReadPolicy:        ReadPolicyAround,
-		SyncInterval:      10 * time.Minute,
-		EnableStats:       false,
-		MaxConcurrentSync: 5,
+		MemoryConfig:          ResourceConstrainedMemoryConfig(),
+		WritePolicy:           WritePolicyAround,
+		ReadPolicy:            ReadPolicyAround,
+		SyncInterval:          10 * time.Minute,
+		EnableStats:           false,
+		MaxConcurrentSync:     5,
+		AsyncOperationTimeout: 15 * time.Second,
+		BackgroundSyncTimeout: 30 * time.Second,
 	}
 }
 
@@ -104,8 +140,23 @@ type LayeredStats struct {
 
 // NewLayeredStore creates a new layered store
 func NewLayeredStore(l2Store Store, config *LayeredConfig) (*LayeredStore, error) {
+	// Validate inputs
+	if l2Store == nil {
+		return nil, fmt.Errorf("L2 store cannot be nil")
+	}
+
+	// Validate that l2Store implements all required methods
+	if err := validateStore(l2Store); err != nil {
+		return nil, fmt.Errorf("invalid L2 store: %w", err)
+	}
+
 	if config == nil {
 		config = DefaultLayeredConfig()
+	}
+
+	// Validate memory config
+	if config.MemoryConfig == nil {
+		return nil, fmt.Errorf("memory config cannot be nil")
 	}
 
 	// Create L1 (memory) store
@@ -114,11 +165,17 @@ func NewLayeredStore(l2Store Store, config *LayeredConfig) (*LayeredStore, error
 		return nil, fmt.Errorf("failed to create memory store: %w", err)
 	}
 
+	// Validate that l1Store implements all required methods
+	if err := validateStore(l1Store); err != nil {
+		return nil, fmt.Errorf("invalid L1 store: %w", err)
+	}
+
 	store := &LayeredStore{
-		l1Store: l1Store,
-		l2Store: l2Store,
-		config:  config,
-		stats:   &LayeredStats{},
+		l1Store:        l1Store,
+		l2Store:        l2Store,
+		config:         config,
+		stats:          &LayeredStats{},
+		asyncSemaphore: make(chan struct{}, config.MaxConcurrentSync),
 	}
 
 	// Start background sync if needed
@@ -129,6 +186,31 @@ func NewLayeredStore(l2Store Store, config *LayeredConfig) (*LayeredStore, error
 	return store, nil
 }
 
+// validateStore validates that a store implements all required methods
+func validateStore(store Store) error {
+	if store == nil {
+		return fmt.Errorf("store is nil")
+	}
+
+	// Test basic operations to ensure store is functional
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Test Get method
+	result := <-store.Get(ctx, "test-validation")
+	if result.Error != nil && result.Error.Error() != "key cannot be empty" {
+		// Only fail if it's not the expected validation error
+		return fmt.Errorf("store Get method validation failed: %w", result.Error)
+	}
+
+	return nil
+}
+
+// isClosed checks if the store is closed
+func (s *LayeredStore) isClosed() bool {
+	return atomic.LoadInt32(&s.closed) == 1
+}
+
 // Get retrieves a value from the layered store (non-blocking)
 func (s *LayeredStore) Get(ctx context.Context, key string) <-chan AsyncResult {
 	result := make(chan AsyncResult, 1)
@@ -136,10 +218,30 @@ func (s *LayeredStore) Get(ctx context.Context, key string) <-chan AsyncResult {
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		if key == "" {
 			result <- AsyncResult{Error: fmt.Errorf("key cannot be empty")}
 			return
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
 		}
 
 		// Try L1 first
@@ -180,6 +282,18 @@ func (s *LayeredStore) Set(ctx context.Context, key string, value []byte, ttl ti
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		if key == "" {
 			result <- AsyncResult{Error: fmt.Errorf("key cannot be empty")}
@@ -192,6 +306,14 @@ func (s *LayeredStore) Set(ctx context.Context, key string, value []byte, ttl ti
 		if ttl < 0 {
 			result <- AsyncResult{Error: fmt.Errorf("ttl cannot be negative")}
 			return
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
 		}
 
 		switch s.config.WritePolicy {
@@ -216,6 +338,18 @@ func (s *LayeredStore) MGet(ctx context.Context, keys ...string) <-chan AsyncRes
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		for _, key := range keys {
 			if key == "" {
@@ -227,6 +361,14 @@ func (s *LayeredStore) MGet(ctx context.Context, keys ...string) <-chan AsyncRes
 		if len(keys) == 0 {
 			result <- AsyncResult{Values: make(map[string][]byte)}
 			return
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
 		}
 
 		// Try L1 first
@@ -271,17 +413,12 @@ func (s *LayeredStore) MGet(ctx context.Context, keys ...string) <-chan AsyncRes
 			l2Results = make(map[string][]byte)
 		}
 
-		// Merge results
+		// Merge results and populate L1 safely
 		for key, value := range l2Results {
 			if value != nil {
 				l1Results[key] = value
-				// Populate L1 for future reads
-				go func(k string, v []byte) {
-					setResult := <-s.l1Store.Set(context.Background(), k, v, s.config.MemoryConfig.DefaultTTL)
-					if setResult.Error != nil {
-						logx.Error("Failed to populate L1 cache", logx.String("key", k), logx.ErrorField(setResult.Error))
-					}
-				}(key, value)
+				// Populate L1 for future reads with proper context and nil checks
+				s.populateL1Async(key, value)
 			}
 		}
 
@@ -300,6 +437,18 @@ func (s *LayeredStore) MSet(ctx context.Context, items map[string][]byte, ttl ti
 
 	go func() {
 		defer close(result)
+
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
 
 		// Boundary condition validations
 		if ttl < 0 {
@@ -324,6 +473,14 @@ func (s *LayeredStore) MSet(ctx context.Context, items map[string][]byte, ttl ti
 			return
 		}
 
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
+		}
+
 		switch s.config.WritePolicy {
 		case WritePolicyThrough:
 			s.msetThroughAsync(ctx, items, ttl, result)
@@ -346,6 +503,18 @@ func (s *LayeredStore) Del(ctx context.Context, keys ...string) <-chan AsyncResu
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		for _, key := range keys {
 			if key == "" {
@@ -359,14 +528,30 @@ func (s *LayeredStore) Del(ctx context.Context, keys ...string) <-chan AsyncResu
 			return
 		}
 
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
+		}
+
 		// Delete from both layers
 		l1Result := <-s.l1Store.Del(ctx, keys...)
 		l2Result := <-s.l2Store.Del(ctx, keys...)
 
-		// Return error if both failed
+		// Return error if both failed (more lenient error handling)
 		if l1Result.Error != nil && l2Result.Error != nil {
-			result <- AsyncResult{Error: fmt.Errorf("L1 error: %w, L2 error: %w", l1Result.Error, l2Result.Error)}
+			result <- AsyncResult{Error: fmt.Errorf("both L1 and L2 delete failed: L1=%w, L2=%w", l1Result.Error, l2Result.Error)}
 			return
+		}
+
+		// Log individual errors but don't fail the operation
+		if l1Result.Error != nil {
+			logx.Warn("L1 delete failed", logx.ErrorField(l1Result.Error))
+		}
+		if l2Result.Error != nil {
+			logx.Warn("L2 delete failed", logx.ErrorField(l2Result.Error))
 		}
 
 		result <- AsyncResult{}
@@ -382,10 +567,30 @@ func (s *LayeredStore) Exists(ctx context.Context, key string) <-chan AsyncResul
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		if key == "" {
 			result <- AsyncResult{Error: fmt.Errorf("key cannot be empty")}
 			return
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
 		}
 
 		// Check L1 first
@@ -415,10 +620,30 @@ func (s *LayeredStore) TTL(ctx context.Context, key string) <-chan AsyncResult {
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		if key == "" {
 			result <- AsyncResult{Error: fmt.Errorf("key cannot be empty")}
 			return
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
 		}
 
 		// Check L1 first
@@ -448,6 +673,18 @@ func (s *LayeredStore) IncrBy(ctx context.Context, key string, delta int64, ttlI
 	go func() {
 		defer close(result)
 
+		// Check if store is closed
+		if s.isClosed() {
+			result <- AsyncResult{Error: fmt.Errorf("store is closed")}
+			return
+		}
+
+		// Validate stores
+		if s.l1Store == nil || s.l2Store == nil {
+			result <- AsyncResult{Error: fmt.Errorf("store not properly initialized")}
+			return
+		}
+
 		// Boundary condition validations
 		if key == "" {
 			result <- AsyncResult{Error: fmt.Errorf("key cannot be empty")}
@@ -458,40 +695,19 @@ func (s *LayeredStore) IncrBy(ctx context.Context, key string, delta int64, ttlI
 			return
 		}
 
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			result <- AsyncResult{Error: ctx.Err()}
+			return
+		default:
+		}
+
 		// Try L1 first
 		l1Result := <-s.l1Store.IncrBy(ctx, key, delta, ttlIfCreate)
 		if l1Result.Error == nil {
 			// Success in L1, sync to L2 based on write policy
-			switch s.config.WritePolicy {
-			case WritePolicyThrough:
-				// Sync to L2 in write-through mode
-				go func(k string, d int64, ttl time.Duration) {
-					l2Result := <-s.l2Store.IncrBy(context.Background(), k, d, ttl)
-					if l2Result.Error != nil {
-						logx.Error("Failed to sync IncrBy to L2 in write-through mode", logx.String("key", k), logx.ErrorField(l2Result.Error))
-					}
-				}(key, delta, ttlIfCreate)
-			case WritePolicyBehind:
-				// Async sync to L2
-				go func(k string, d int64, ttl time.Duration) {
-					l2Result := <-s.l2Store.IncrBy(context.Background(), k, d, ttl)
-					if l2Result.Error != nil {
-						logx.Error("Failed to sync IncrBy to L2", logx.String("key", k), logx.ErrorField(l2Result.Error))
-					}
-				}(key, delta, ttlIfCreate)
-			case WritePolicyAround:
-				// Invalidate L1, write to L2
-				go func(k string, d int64, ttl time.Duration) {
-					delResult := <-s.l1Store.Del(context.Background(), k)
-					if delResult.Error != nil {
-						logx.Error("Failed to invalidate L1 cache in write-around mode", logx.String("key", k), logx.ErrorField(delResult.Error))
-					}
-					l2Result := <-s.l2Store.IncrBy(context.Background(), k, d, ttl)
-					if l2Result.Error != nil {
-						logx.Error("Failed to write to L2 in write-around mode", logx.String("key", k), logx.ErrorField(l2Result.Error))
-					}
-				}(key, delta, ttlIfCreate)
-			}
+			s.syncIncrByToL2Async(key, delta, ttlIfCreate)
 			result <- AsyncResult{Result: l1Result.Result}
 			return
 		}
@@ -503,13 +719,8 @@ func (s *LayeredStore) IncrBy(ctx context.Context, key string, delta int64, ttlI
 			return
 		}
 
-		// Populate L1 for future reads
-		go func(k string, r int64, ttl time.Duration) {
-			setResult := <-s.l1Store.Set(context.Background(), k, []byte(fmt.Sprintf("%d", r)), ttl)
-			if setResult.Error != nil {
-				logx.Error("Failed to populate L1 cache after IncrBy", logx.String("key", k), logx.ErrorField(setResult.Error))
-			}
-		}(key, l2Result.Result, ttlIfCreate)
+		// Populate L1 for future reads with timeout
+		s.populateL1AfterIncrByAsync(key, l2Result.Result, ttlIfCreate)
 
 		result <- AsyncResult{Result: l2Result.Result}
 	}()
@@ -519,7 +730,18 @@ func (s *LayeredStore) IncrBy(ctx context.Context, key string, delta int64, ttlI
 
 // Close closes the layered store and releases resources
 func (s *LayeredStore) Close() error {
+	// Set closed flag
+	if !atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
+		return nil // Already closed
+	}
+
 	var l1Err, l2Err error
+
+	// Stop background sync if running
+	if s.syncCancel != nil {
+		s.syncCancel()
+		s.syncWg.Wait()
+	}
 
 	// Close L1 store
 	if closer, ok := s.l1Store.(interface{ Close() error }); ok {
@@ -527,7 +749,9 @@ func (s *LayeredStore) Close() error {
 	}
 
 	// Close L2 store
-	l2Err = s.l2Store.Close()
+	if s.l2Store != nil {
+		l2Err = s.l2Store.Close()
+	}
 
 	// Return error if both failed
 	if l1Err != nil && l2Err != nil {
@@ -539,8 +763,12 @@ func (s *LayeredStore) Close() error {
 
 // GetStats returns current statistics
 func (s *LayeredStore) GetStats() *LayeredStats {
-	s.stats.mu.RLock()
-	defer s.stats.mu.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats == nil {
+		s.stats = &LayeredStats{}
+	}
 
 	return s.stats
 }
@@ -555,89 +783,282 @@ func (s *LayeredStore) SyncL1ToL2(ctx context.Context) error {
 
 // startBackgroundSync starts the background sync goroutine
 func (s *LayeredStore) startBackgroundSync() {
-	// This is a placeholder for background sync implementation
-	// In a real implementation, you would track pending writes and sync them periodically
+	s.syncOnce.Do(func() {
+		s.syncCtx, s.syncCancel = context.WithCancel(context.Background())
+
+		s.syncWg.Add(1)
+		go func() {
+			defer func() {
+				// Ensure cleanup happens even on panic
+				if r := recover(); r != nil {
+					logx.Error("Background sync goroutine panicked", logx.Any("panic", r))
+				}
+				s.syncWg.Done()
+			}()
+
+			// Check if config is available
+			var syncInterval time.Duration
+			if s.config != nil {
+				syncInterval = s.config.SyncInterval
+			} else {
+				syncInterval = 5 * time.Minute // Default fallback
+			}
+
+			ticker := time.NewTicker(syncInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-s.syncCtx.Done():
+					return
+				case <-ticker.C:
+					// Perform sync operation with timeout
+					syncCtx, cancel := context.WithTimeout(s.syncCtx, s.getBackgroundSyncTimeout())
+					if err := s.SyncL1ToL2(syncCtx); err != nil {
+						logx.Error("Background sync failed", logx.ErrorField(err))
+						s.recordSyncError()
+					}
+					cancel()
+				}
+			}
+		}()
+	})
+}
+
+// getBackgroundSyncTimeout returns the background sync timeout
+func (s *LayeredStore) getBackgroundSyncTimeout() time.Duration {
+	if s.config != nil && s.config.BackgroundSyncTimeout > 0 {
+		return s.config.BackgroundSyncTimeout
+	}
+	return 60 * time.Second // Default fallback
+}
+
+// getAsyncOperationTimeout returns the async operation timeout
+func (s *LayeredStore) getAsyncOperationTimeout() time.Duration {
+	if s.config != nil && s.config.AsyncOperationTimeout > 0 {
+		return s.config.AsyncOperationTimeout
+	}
+	return 30 * time.Second // Default fallback
 }
 
 // recordL1Hit records an L1 cache hit
 func (s *LayeredStore) recordL1Hit() {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L1Hits++
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL1Hits records multiple L1 cache hits
 func (s *LayeredStore) recordL1Hits(count int64) {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L1Hits += count
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL1Miss records an L1 cache miss
 func (s *LayeredStore) recordL1Miss() {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L1Misses++
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL1Misses records multiple L1 cache misses
 func (s *LayeredStore) recordL1Misses(count int64) {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L1Misses += count
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL2Hit records an L2 cache hit
 func (s *LayeredStore) recordL2Hit() {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L2Hits++
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL2Hits records multiple L2 cache hits
 func (s *LayeredStore) recordL2Hits(count int64) {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L2Hits += count
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL2Miss records an L2 cache miss
 func (s *LayeredStore) recordL2Miss() {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L2Misses++
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordL2Misses records multiple L2 cache misses
 func (s *LayeredStore) recordL2Misses(count int64) {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.L2Misses += count
-		s.stats.mu.Unlock()
 	}
 }
 
 // recordSync records a sync operation
 func (s *LayeredStore) recordSync() {
-	if s.config.EnableStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
 		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
 		s.stats.SyncCount++
-		s.stats.mu.Unlock()
 	}
+}
+
+// recordSyncError records a sync error
+func (s *LayeredStore) recordSyncError() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.stats != nil && s.config != nil && s.config.EnableStats {
+		s.stats.mu.Lock()
+		defer s.stats.mu.Unlock()
+		s.stats.SyncErrors++
+	}
+}
+
+// runAsyncOperation runs an async operation with concurrency control
+func (s *LayeredStore) runAsyncOperation(operation func()) {
+	// Check if store is closed
+	if s.isClosed() {
+		logx.Warn("Async operation skipped - store is closed")
+		return
+	}
+
+	s.asyncMu.RLock()
+	semaphore := s.asyncSemaphore
+	s.asyncMu.RUnlock()
+
+	if semaphore == nil {
+		logx.Warn("Async operation skipped - semaphore not initialized")
+		return
+	}
+
+	select {
+	case semaphore <- struct{}{}:
+		go func() {
+			defer func() {
+				// Ensure semaphore is always released, even on panic
+				if r := recover(); r != nil {
+					logx.Error("Async operation panicked", logx.Any("panic", r))
+				}
+				<-semaphore
+			}()
+			operation()
+		}()
+	default:
+		// Semaphore is full, skip the operation
+		logx.Warn("Async operation skipped due to concurrency limit")
+	}
+}
+
+// populateL1Async populates L1 cache asynchronously
+func (s *LayeredStore) populateL1Async(key string, value []byte) {
+	s.runAsyncOperation(func() {
+		// Use a timeout context to prevent hanging operations
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
+		defer cancel()
+
+		// Check if memory config is available
+		var ttl time.Duration
+		if s.config != nil && s.config.MemoryConfig != nil {
+			ttl = s.config.MemoryConfig.DefaultTTL
+		} else {
+			ttl = 5 * time.Minute // Default fallback TTL
+		}
+
+		setResult := <-s.l1Store.Set(asyncCtx, key, value, ttl)
+		if setResult.Error != nil {
+			logx.Error("Failed to populate L1 cache", logx.String("key", key), logx.ErrorField(setResult.Error))
+		}
+	})
+}
+
+// syncIncrByToL2Async syncs IncrBy operation to L2 asynchronously
+func (s *LayeredStore) syncIncrByToL2Async(key string, delta int64, ttl time.Duration) {
+	s.runAsyncOperation(func() {
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
+		defer cancel()
+
+		switch s.config.WritePolicy {
+		case WritePolicyThrough:
+			l2Result := <-s.l2Store.IncrBy(asyncCtx, key, delta, ttl)
+			if l2Result.Error != nil {
+				logx.Error("Failed to sync IncrBy to L2 in write-through mode", logx.String("key", key), logx.ErrorField(l2Result.Error))
+			}
+		case WritePolicyBehind:
+			l2Result := <-s.l2Store.IncrBy(asyncCtx, key, delta, ttl)
+			if l2Result.Error != nil {
+				logx.Error("Failed to sync IncrBy to L2", logx.String("key", key), logx.ErrorField(l2Result.Error))
+			}
+		case WritePolicyAround:
+			delResult := <-s.l1Store.Del(asyncCtx, key)
+			if delResult.Error != nil {
+				logx.Error("Failed to invalidate L1 cache in write-around mode", logx.String("key", key), logx.ErrorField(delResult.Error))
+			}
+			l2Result := <-s.l2Store.IncrBy(asyncCtx, key, delta, ttl)
+			if l2Result.Error != nil {
+				logx.Error("Failed to write to L2 in write-around mode", logx.String("key", key), logx.ErrorField(l2Result.Error))
+			}
+		}
+	})
+}
+
+// populateL1AfterIncrByAsync populates L1 after IncrBy operation
+func (s *LayeredStore) populateL1AfterIncrByAsync(key string, result int64, ttl time.Duration) {
+	s.runAsyncOperation(func() {
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
+		defer cancel()
+
+		setResult := <-s.l1Store.Set(asyncCtx, key, []byte(fmt.Sprintf("%d", result)), ttl)
+		if setResult.Error != nil {
+			logx.Error("Failed to populate L1 cache after IncrBy", logx.String("key", key), logx.ErrorField(setResult.Error))
+		}
+	})
 }
 
 // readThroughAsync implements read-through policy (async)
@@ -651,13 +1072,8 @@ func (s *LayeredStore) readThroughAsync(ctx context.Context, key string, result 
 
 	if l2Result.Exists && l2Result.Value != nil {
 		s.recordL2Hit()
-		// Populate L1 for future reads
-		go func(k string, v []byte) {
-			setResult := <-s.l1Store.Set(context.Background(), k, v, s.config.MemoryConfig.DefaultTTL)
-			if setResult.Error != nil {
-				logx.Error("Failed to populate L1 cache in readThroughAsync", logx.String("key", k), logx.ErrorField(setResult.Error))
-			}
-		}(key, l2Result.Value)
+		// Populate L1 for future reads with proper context and nil checks
+		s.populateL1Async(key, l2Result.Value)
 		result <- AsyncResult{Value: l2Result.Value, Exists: true}
 		return
 	}
@@ -690,10 +1106,18 @@ func (s *LayeredStore) writeThroughAsync(ctx context.Context, key string, value 
 	l1Result := <-s.l1Store.Set(ctx, key, value, ttl)
 	l2Result := <-s.l2Store.Set(ctx, key, value, ttl)
 
-	// Return error if both failed
+	// Return error if both failed (more lenient error handling)
 	if l1Result.Error != nil && l2Result.Error != nil {
-		result <- AsyncResult{Error: fmt.Errorf("L1 error: %w, L2 error: %w", l1Result.Error, l2Result.Error)}
+		result <- AsyncResult{Error: fmt.Errorf("both L1 and L2 write failed: L1=%w, L2=%w", l1Result.Error, l2Result.Error)}
 		return
+	}
+
+	// Log individual errors but don't fail the operation
+	if l1Result.Error != nil {
+		logx.Warn("L1 write failed", logx.String("key", key), logx.ErrorField(l1Result.Error))
+	}
+	if l2Result.Error != nil {
+		logx.Warn("L2 write failed", logx.String("key", key), logx.ErrorField(l2Result.Error))
 	}
 
 	result <- AsyncResult{}
@@ -709,16 +1133,15 @@ func (s *LayeredStore) writeBehindAsync(ctx context.Context, key string, value [
 	}
 
 	// Write to L2 asynchronously with context timeout
-	go func(k string, v []byte, t time.Duration) {
-		// Use a timeout context to prevent hanging operations
-		asyncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	s.runAsyncOperation(func() {
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
 		defer cancel()
 
-		l2Result := <-s.l2Store.Set(asyncCtx, k, v, t)
+		l2Result := <-s.l2Store.Set(asyncCtx, key, value, ttl)
 		if l2Result.Error != nil {
-			logx.Error("Failed to write behind to L2", logx.String("key", k), logx.ErrorField(l2Result.Error))
+			logx.Error("Failed to write behind to L2", logx.String("key", key), logx.ErrorField(l2Result.Error))
 		}
-	}(key, value, ttl)
+	})
 
 	result <- AsyncResult{}
 }
@@ -732,13 +1155,15 @@ func (s *LayeredStore) writeAroundAsync(ctx context.Context, key string, value [
 		return
 	}
 
-	// Invalidate L1
-	go func(k string) {
-		delResult := <-s.l1Store.Del(context.Background(), k)
+	// Invalidate L1 with timeout
+	s.runAsyncOperation(func() {
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
+		defer cancel()
+		delResult := <-s.l1Store.Del(asyncCtx, key)
 		if delResult.Error != nil {
-			logx.Error("Failed to invalidate L1 cache in writeAroundAsync", logx.String("key", k), logx.ErrorField(delResult.Error))
+			logx.Error("Failed to invalidate L1 cache in writeAroundAsync", logx.String("key", key), logx.ErrorField(delResult.Error))
 		}
-	}(key)
+	})
 
 	result <- AsyncResult{}
 }
@@ -749,10 +1174,18 @@ func (s *LayeredStore) msetThroughAsync(ctx context.Context, items map[string][]
 	l1Result := <-s.l1Store.MSet(ctx, items, ttl)
 	l2Result := <-s.l2Store.MSet(ctx, items, ttl)
 
-	// Return error if both failed
+	// Return error if both failed (more lenient error handling)
 	if l1Result.Error != nil && l2Result.Error != nil {
-		result <- AsyncResult{Error: fmt.Errorf("L1 error: %w, L2 error: %w", l1Result.Error, l2Result.Error)}
+		result <- AsyncResult{Error: fmt.Errorf("both L1 and L2 MSet failed: L1=%w, L2=%w", l1Result.Error, l2Result.Error)}
 		return
+	}
+
+	// Log individual errors but don't fail the operation
+	if l1Result.Error != nil {
+		logx.Warn("L1 MSet failed", logx.ErrorField(l1Result.Error))
+	}
+	if l2Result.Error != nil {
+		logx.Warn("L2 MSet failed", logx.ErrorField(l2Result.Error))
 	}
 
 	result <- AsyncResult{}
@@ -768,16 +1201,15 @@ func (s *LayeredStore) msetBehindAsync(ctx context.Context, items map[string][]b
 	}
 
 	// Write to L2 asynchronously with context timeout
-	go func(itemsMap map[string][]byte, t time.Duration) {
-		// Use a timeout context to prevent hanging operations
-		asyncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	s.runAsyncOperation(func() {
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
 		defer cancel()
 
-		l2Result := <-s.l2Store.MSet(asyncCtx, itemsMap, t)
+		l2Result := <-s.l2Store.MSet(asyncCtx, items, ttl)
 		if l2Result.Error != nil {
 			logx.Error("Failed to MSet behind to L2", logx.ErrorField(l2Result.Error))
 		}
-	}(items, ttl)
+	})
 
 	result <- AsyncResult{}
 }
@@ -791,17 +1223,20 @@ func (s *LayeredStore) msetAroundAsync(ctx context.Context, items map[string][]b
 		return
 	}
 
-	// Invalidate L1 for all keys
+	// Invalidate L1 for all keys with timeout
 	keys := make([]string, 0, len(items))
 	for key := range items {
 		keys = append(keys, key)
 	}
-	go func(keyList []string) {
-		delResult := <-s.l1Store.Del(context.Background(), keyList...)
+
+	s.runAsyncOperation(func() {
+		asyncCtx, cancel := context.WithTimeout(context.Background(), s.getAsyncOperationTimeout())
+		defer cancel()
+		delResult := <-s.l1Store.Del(asyncCtx, keys...)
 		if delResult.Error != nil {
 			logx.Error("Failed to invalidate L1 cache in msetAroundAsync", logx.ErrorField(delResult.Error))
 		}
-	}(keys)
+	})
 
 	result <- AsyncResult{}
 }
