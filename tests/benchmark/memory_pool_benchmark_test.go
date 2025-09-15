@@ -216,7 +216,7 @@ func BenchmarkMemoryPoolAllocation(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			buf := pool.Get()
 			buf = append(buf, "test"...)
-			pool.Put(buf)
+			pool.Put(&buf)
 		}
 	})
 }

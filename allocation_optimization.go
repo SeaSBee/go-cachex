@@ -292,8 +292,11 @@ func (obp *OptimizedBufferPool) Get(size int) []byte {
 }
 
 // Put returns a buffer to the appropriate pool
-func (obp *OptimizedBufferPool) Put(buf []byte) {
-	capacity := cap(buf)
+func (obp *OptimizedBufferPool) Put(buf *[]byte) {
+	if buf == nil {
+		return
+	}
+	capacity := cap(*buf)
 	switch {
 	case capacity <= 512:
 		obp.smallPool.Put(buf)
@@ -334,11 +337,11 @@ func OptimizedValueCopy(src []byte) []byte {
 		// If pooled buffer is too small, create a new one
 		switch {
 		case len(src) <= 512:
-			GlobalAllocationOptimizer.smallBufferPool.Put(buf)
+			GlobalAllocationOptimizer.smallBufferPool.Put(&buf)
 		case len(src) <= 4096:
-			GlobalAllocationOptimizer.mediumBufferPool.Put(buf)
+			GlobalAllocationOptimizer.mediumBufferPool.Put(&buf)
 		default:
-			GlobalAllocationOptimizer.largeBufferPool.Put(buf)
+			GlobalAllocationOptimizer.largeBufferPool.Put(&buf)
 		}
 		return make([]byte, len(src))
 	}
@@ -429,11 +432,11 @@ func OptimizedStringJoin(elems []string, sep string) string {
 		// Return buffer to appropriate pool
 		switch {
 		case cap(buf) <= 512:
-			GlobalAllocationOptimizer.smallBufferPool.Put(buf)
+			GlobalAllocationOptimizer.smallBufferPool.Put(&buf)
 		case cap(buf) <= 4096:
-			GlobalAllocationOptimizer.mediumBufferPool.Put(buf)
+			GlobalAllocationOptimizer.mediumBufferPool.Put(&buf)
 		default:
-			GlobalAllocationOptimizer.largeBufferPool.Put(buf)
+			GlobalAllocationOptimizer.largeBufferPool.Put(&buf)
 		}
 	}()
 

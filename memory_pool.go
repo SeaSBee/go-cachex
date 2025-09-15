@@ -185,16 +185,14 @@ func (p *BufferPool) Get() []byte {
 }
 
 // Put returns a buffer to the pool after resetting it
-func (p *BufferPool) Put(buf []byte) {
-	if p == nil {
+func (p *BufferPool) Put(buf *[]byte) {
+	if p == nil || buf == nil {
 		return
 	}
 
 	// Reset the buffer to zero length but keep capacity
-	if buf != nil {
-		buf = buf[:0]
-		p.pool.Put(buf)
-	}
+	*buf = (*buf)[:0]
+	p.pool.Put(buf)
 }
 
 // GetWithCapacity retrieves a buffer with at least the specified capacity
@@ -207,7 +205,7 @@ func (p *BufferPool) GetWithCapacity(minCapacity int) []byte {
 	if buf == nil || cap(buf) < minCapacity {
 		// If the pooled buffer is too small or nil, create a new one
 		if buf != nil {
-			p.Put(buf)
+			p.Put(&buf)
 		}
 		return make([]byte, 0, minCapacity)
 	}
@@ -251,16 +249,14 @@ func (p *StringSlicePool) Get() []string {
 }
 
 // Put returns a string slice to the pool after resetting it
-func (p *StringSlicePool) Put(slice []string) {
-	if p == nil {
+func (p *StringSlicePool) Put(slice *[]string) {
+	if p == nil || slice == nil {
 		return
 	}
 
 	// Reset the slice to zero length but keep capacity
-	if slice != nil {
-		slice = slice[:0]
-		p.pool.Put(slice)
-	}
+	*slice = (*slice)[:0]
+	p.pool.Put(slice)
 }
 
 // MapPool provides object pooling for map[string][]byte
@@ -331,19 +327,19 @@ var GlobalPools = struct {
 // ValidateGlobalPools ensures all global pools are properly initialized
 func ValidateGlobalPools() error {
 	if GlobalPools.CacheItem == nil {
-		return fmt.Errorf("CacheItem pool is not initialized")
+		return fmt.Errorf("cacheItem pool is not initialized")
 	}
 	if GlobalPools.AsyncResult == nil {
-		return fmt.Errorf("AsyncResult pool is not initialized")
+		return fmt.Errorf("asyncResult pool is not initialized")
 	}
 	if GlobalPools.Buffer == nil {
-		return fmt.Errorf("Buffer pool is not initialized")
+		return fmt.Errorf("buffer pool is not initialized")
 	}
 	if GlobalPools.StringSlice == nil {
-		return fmt.Errorf("StringSlice pool is not initialized")
+		return fmt.Errorf("stringSlice pool is not initialized")
 	}
 	if GlobalPools.Map == nil {
-		return fmt.Errorf("Map pool is not initialized")
+		return fmt.Errorf("map pool is not initialized")
 	}
 	return nil
 }

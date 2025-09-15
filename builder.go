@@ -88,8 +88,8 @@ func (b *Builder) BuildList(entity string, filters map[string]any) string {
 
 	entityStr := b.normalizeInput(entity, "unknown")
 
-	// Handle nil or empty filters
-	if filters == nil || len(filters) == 0 {
+	// Handle empty filters
+	if len(filters) == 0 {
 		return fmt.Sprintf("app:%s:env:%s:list:%s:all", b.appName, b.env, entityStr)
 	}
 

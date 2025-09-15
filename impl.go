@@ -929,40 +929,6 @@ func (c *cache[T]) logOperation(op, key string, duration time.Duration, err erro
 }
 
 // Default implementations
-type defaultJSONCodec struct{}
-
-func (c *defaultJSONCodec) Encode(v any) ([]byte, error) {
-	// Use the JSON codec from the local package with proper initialization
-	jsonCodec := &JSONCodec{
-		AllowNilValues:     false,
-		EnableDebugLogging: false,
-		bufferPool:         GlobalPools.Buffer,
-	}
-
-	// Validate the codec before use
-	if err := jsonCodec.Validate(); err != nil {
-		return nil, fmt.Errorf("codec validation failed: %w", err)
-	}
-
-	return jsonCodec.Encode(v)
-}
-
-func (c *defaultJSONCodec) Decode(data []byte, v any) error {
-	// Use the JSON codec from the local package with proper initialization
-	jsonCodec := &JSONCodec{
-		AllowNilValues:     false,
-		EnableDebugLogging: false,
-		bufferPool:         GlobalPools.Buffer,
-	}
-
-	// Validate the codec before use
-	if err := jsonCodec.Validate(); err != nil {
-		return fmt.Errorf("codec validation failed: %w", err)
-	}
-
-	return jsonCodec.Decode(data, v)
-}
-
 type defaultKeyBuilder struct{}
 
 func (b *defaultKeyBuilder) Build(entity, id string) string {

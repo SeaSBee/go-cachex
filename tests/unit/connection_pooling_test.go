@@ -154,7 +154,7 @@ func TestNewOptimizedConnectionPool_Configuration(t *testing.T) {
 				// For valid configs, we expect connection to fail but pool creation to succeed
 				if err != nil {
 					// Connection failed but pool was created
-					assert.Contains(t, err.Error(), "failed to connect to Redis")
+					assert.Contains(t, err.Error(), "failed to connect to redis")
 					assert.Nil(t, pool)
 				} else {
 					// Pool created successfully
@@ -234,7 +234,7 @@ func TestOptimizedConnectionPool_ErrorHandling(t *testing.T) {
 		pool, err := cachex.NewOptimizedConnectionPool(config)
 		assert.Error(t, err)
 		assert.Nil(t, pool)
-		assert.Contains(t, err.Error(), "failed to connect to Redis")
+		assert.Contains(t, err.Error(), "failed to connect to redis")
 	})
 
 	t.Run("Invalid_Redis_address", func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestOptimizedConnectionPool_ErrorHandling(t *testing.T) {
 		pool, err := cachex.NewOptimizedConnectionPool(config)
 		assert.Error(t, err)
 		assert.Nil(t, pool)
-		assert.Contains(t, err.Error(), "failed to connect to Redis")
+		assert.Contains(t, err.Error(), "failed to connect to redis")
 	})
 }
 
@@ -680,7 +680,7 @@ func TestOptimizedConnectionPool_ComprehensiveValidation(t *testing.T) {
 					// For valid configs, connection will fail but validation should pass
 					assert.Error(t, err)
 					assert.Nil(t, pool)
-					assert.Contains(t, err.Error(), "failed to connect to Redis")
+					assert.Contains(t, err.Error(), "failed to connect to redis")
 				}
 			})
 		}

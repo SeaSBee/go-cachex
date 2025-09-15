@@ -406,6 +406,9 @@ func TestRistrettoStore_Del_Success(t *testing.T) {
 		t.Errorf("Del() failed: %v", delResult.Error)
 	}
 
+	// Wait a bit for eventual consistency
+	time.Sleep(50 * time.Millisecond)
+
 	// Verify deletion
 	getResult := <-store.Get(ctx, key)
 	if getResult.Error != nil {
@@ -821,14 +824,20 @@ func TestRistrettoStore_IncrBy_Overflow(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("Initial IncrBy() failed: %v", result.Error)
 	}
+	if result.Result != 100 {
+		t.Fatalf("Initial IncrBy() returned wrong value: got %d, want 100", result.Result)
+	}
+
+	// Wait a bit for Ristretto to process
+	time.Sleep(10 * time.Millisecond)
 
 	// Test that normal increment works
 	result = <-store.IncrBy(ctx, key, 50, 5*time.Minute)
 	if result.Error != nil {
 		t.Errorf("Normal IncrBy() failed: %v", result.Error)
 	}
-	if result.Result != 50 {
-		t.Errorf("Expected result 50, got %v", result.Result)
+	if result.Result != 150 {
+		t.Errorf("Expected result 150, got %v", result.Result)
 	}
 }
 

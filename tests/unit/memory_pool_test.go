@@ -164,7 +164,7 @@ func TestBufferPool(t *testing.T) {
 	buf = append(buf, "test"...)
 
 	// Put it back
-	pool.Put(buf)
+	pool.Put(&buf)
 
 	// Get it again and verify it was reset
 	buf2 := pool.Get()
@@ -185,7 +185,7 @@ func TestBufferPoolNilHandling(t *testing.T) {
 
 	// Test Put with nil pool (should not panic)
 	nilPool.Put(nil)
-	nilPool.Put([]byte{})
+	nilPool.Put(&[]byte{})
 
 	// Test Put with nil buffer
 	pool.Put(nil) // Should not panic
@@ -241,7 +241,7 @@ func TestStringSlicePool(t *testing.T) {
 	slice = append(slice, "test1", "test2")
 
 	// Put it back
-	pool.Put(slice)
+	pool.Put(&slice)
 
 	// Get it again and verify it was reset
 	slice2 := pool.Get()
@@ -262,7 +262,7 @@ func TestStringSlicePoolNilHandling(t *testing.T) {
 
 	// Test Put with nil pool (should not panic)
 	nilPool.Put(nil)
-	nilPool.Put([]string{})
+	nilPool.Put(&[]string{})
 
 	// Test Put with nil slice
 	pool.Put(nil) // Should not panic

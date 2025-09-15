@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/SeaSBee/go-logx"
+	"github.com/redis/go-redis/v9"
 )
 
 // OptimizedConnectionPool provides advanced connection pooling with performance optimizations
@@ -265,7 +265,7 @@ func NewOptimizedConnectionPool(config *OptimizedConnectionPoolConfig) (*Optimiz
 
 	if err := client.Ping(connCtx).Err(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to connect to Redis at %s: %w", configCopy.Addr, err)
+		return nil, fmt.Errorf("failed to connect to redis at %s: %w", configCopy.Addr, err)
 	}
 
 	pool := &OptimizedConnectionPool{
@@ -348,7 +348,7 @@ func (p *OptimizedConnectionPool) Get(ctx context.Context, key string) <-chan As
 		// Execute Redis command with nil check
 		if p.client == nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis client is not available")}
+			result <- AsyncResult{Error: fmt.Errorf("redis client is not available")}
 			return
 		}
 
@@ -359,7 +359,7 @@ func (p *OptimizedConnectionPool) Get(ctx context.Context, key string) <-chan As
 				result <- AsyncResult{Exists: false}
 			} else {
 				atomic.AddInt64(&p.stats.Errors, 1)
-				result <- AsyncResult{Error: fmt.Errorf("Redis get error: %w", err)}
+				result <- AsyncResult{Error: fmt.Errorf("redis get error: %w", err)}
 			}
 			return
 		}
@@ -408,14 +408,14 @@ func (p *OptimizedConnectionPool) Set(ctx context.Context, key string, value []b
 		// Execute Redis command with nil check
 		if p.client == nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis client is not available")}
+			result <- AsyncResult{Error: fmt.Errorf("redis client is not available")}
 			return
 		}
 
 		err := p.client.Set(ctx, key, value, ttl).Err()
 		if err != nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis set error: %w", err)}
+			result <- AsyncResult{Error: fmt.Errorf("redis set error: %w", err)}
 			return
 		}
 
@@ -459,14 +459,14 @@ func (p *OptimizedConnectionPool) Del(ctx context.Context, keys ...string) <-cha
 		// Execute Redis command with nil check
 		if p.client == nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis client is not available")}
+			result <- AsyncResult{Error: fmt.Errorf("redis client is not available")}
 			return
 		}
 
 		err := p.client.Del(ctx, keys...).Err()
 		if err != nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis del error: %w", err)}
+			result <- AsyncResult{Error: fmt.Errorf("redis del error: %w", err)}
 			return
 		}
 
@@ -510,14 +510,14 @@ func (p *OptimizedConnectionPool) Exists(ctx context.Context, keys ...string) <-
 		// Execute Redis command with nil check
 		if p.client == nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis client is not available")}
+			result <- AsyncResult{Error: fmt.Errorf("redis client is not available")}
 			return
 		}
 
 		count, err := p.client.Exists(ctx, keys...).Result()
 		if err != nil {
 			atomic.AddInt64(&p.stats.Errors, 1)
-			result <- AsyncResult{Error: fmt.Errorf("Redis exists error: %w", err)}
+			result <- AsyncResult{Error: fmt.Errorf("redis exists error: %w", err)}
 			return
 		}
 
@@ -642,7 +642,7 @@ func (p *OptimizedConnectionPool) checkHealth(ctx context.Context) error {
 	// Check if client is available
 	if p.client == nil {
 		atomic.AddInt64(&p.stats.HealthFailures, 1)
-		return fmt.Errorf("Redis client is not available")
+		return fmt.Errorf("redis client is not available")
 	}
 
 	// Perform health check

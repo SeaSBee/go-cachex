@@ -9,16 +9,6 @@ import (
 	"github.com/SeaSBee/go-logx"
 )
 
-// bufferWriter implements io.Writer for use with json.Encoder
-type bufferWriter struct {
-	buf []byte
-}
-
-func (bw *bufferWriter) Write(p []byte) (n int, err error) {
-	bw.buf = append(bw.buf, p...)
-	return len(p), nil
-}
-
 // JSONCodec implements the Codec interface using JSON serialization
 type JSONCodec struct {
 	// AllowNilValues determines whether nil values are allowed to be encoded/decoded
