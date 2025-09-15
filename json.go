@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // bufferWriter implements io.Writer for use with json.Encoder

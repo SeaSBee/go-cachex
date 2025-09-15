@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/SeaSBee/go-cachex"
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // TestValidationCacheIntegration tests validation cache integration with cache creation

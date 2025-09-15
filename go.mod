@@ -3,11 +3,11 @@ module github.com/SeaSBee/go-cachex
 go 1.24.5
 
 require (
-	github.com/SeaSBee/go-validatorx v0.0.0-20250828091918-9456c4122ed6
+	github.com/SeaSBee/go-logx v1.1.0
+	github.com/SeaSBee/go-validatorx v1.0.0
 	github.com/dgraph-io/ristretto v0.2.0
 	github.com/prometheus/client_golang v1.23.0
 	github.com/redis/go-redis/v9 v9.12.1
-	github.com/seasbee/go-logx v1.0.0
 	github.com/stretchr/testify v1.11.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.opentelemetry.io/otel v1.37.0

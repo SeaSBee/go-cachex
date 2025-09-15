@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/ristretto"
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // Store implements a Ristretto-based local hot cache

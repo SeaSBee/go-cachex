@@ -136,7 +136,7 @@ func (vc *ValidationCache) IsValid(config *CacheConfig) (bool, error) {
 			if result.Valid {
 				return true, nil
 			} else {
-				return false, fmt.Errorf(result.Error)
+				return false, fmt.Errorf("%s", result.Error)
 			}
 		} else {
 			// Result expired, remove it

@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // LayeredStore implements a layered cache with memory as L1 and Redis as L2

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // OptimizedTagManager provides high-performance tag management with optimized data structures

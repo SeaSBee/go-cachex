@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/SeaSBee/go-cachex"
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // TestOptimizedTagManager_Integration tests the optimized tag manager with real stores

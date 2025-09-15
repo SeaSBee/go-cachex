@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // Store implements the cache.Store interface using Redis

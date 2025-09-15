@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/SeaSBee/go-cachex"
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // IntegrationTestUser represents a test user for integration tests

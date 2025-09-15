@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/SeaSBee/go-cachex"
-	"github.com/seasbee/go-logx"
+	"github.com/SeaSBee/go-logx"
 )
 
 // Test memory store basic operations
