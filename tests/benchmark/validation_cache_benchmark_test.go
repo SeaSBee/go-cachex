@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 // BenchmarkValidationCachePerformance compares performance with and without validation caching

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 // User struct for demonstration

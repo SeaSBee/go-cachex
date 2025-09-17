@@ -14,7 +14,7 @@ import (
 )
 
 // Tracer is the OpenTelemetry tracer for cache operations
-var tracer = otel.Tracer("github.com/SeaSBee/go-cachex")
+var tracer = otel.Tracer("github.com/seasbee/go-cachex")
 
 // Metrics holds all Prometheus metrics
 type Metrics struct {

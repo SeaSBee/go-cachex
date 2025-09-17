@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 	"github.com/seasbee/go-logx"
 )
 

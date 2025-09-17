@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 // MockStore implements Store interface for testing

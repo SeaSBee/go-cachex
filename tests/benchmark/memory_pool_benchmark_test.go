@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 // BenchmarkMemoryPoolOptimization compares performance with and without memory pools

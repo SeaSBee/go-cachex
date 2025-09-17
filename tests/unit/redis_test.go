@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 func TestDefaultRedisConfig(t *testing.T) {

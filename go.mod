@@ -1,4 +1,4 @@
-module github.com/SeaSBee/go-cachex
+module github.com/seasbee/go-cachex
 
 go 1.24.5
 

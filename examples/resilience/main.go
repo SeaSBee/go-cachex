@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	cachex "github.com/SeaSBee/go-cachex"
+	cachex "github.com/seasbee/go-cachex"
 	"github.com/seasbee/go-logx"
 )
 

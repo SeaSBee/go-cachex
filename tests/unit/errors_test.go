@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 func TestCommonErrors(t *testing.T) {

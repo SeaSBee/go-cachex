@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/seasbee/go-cachex"
 	"github.com/seasbee/go-logx"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"

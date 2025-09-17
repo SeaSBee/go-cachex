@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 // BenchmarkTaggingOptimization tests the performance improvements of optimized tagging

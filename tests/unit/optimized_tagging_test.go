@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaSBee/go-cachex"
+	"github.com/seasbee/go-cachex"
 )
 
 // TestNewOptimizedTagManager tests the creation of optimized tag manager
