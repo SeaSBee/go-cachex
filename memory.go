@@ -42,7 +42,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SeaSBee/go-logx"
+	"github.com/seasbee/go-logx"
 )
 
 // Store implements the cache.Store interface using in-memory storage

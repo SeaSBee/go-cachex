@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/SeaSBee/go-cachex"
-	"github.com/SeaSBee/go-logx"
+	"github.com/seasbee/go-logx"
 )
 
 // User struct for demonstration

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SeaSBee/go-logx"
+	"github.com/seasbee/go-logx"
 	"go.opentelemetry.io/otel/trace"
 )
 

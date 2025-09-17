@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SeaSBee/go-logx"
+	"github.com/seasbee/go-logx"
 )
 
 // Plugin provides GORM integration for automatic cache invalidation and read-through

@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/SeaSBee/go-logx"
 	"github.com/redis/go-redis/v9"
+	"github.com/seasbee/go-logx"
 )
 
 // OptimizedConnectionPool provides advanced connection pooling with performance optimizations

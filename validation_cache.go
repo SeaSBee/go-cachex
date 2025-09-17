@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/SeaSBee/go-validatorx"
+	"github.com/seasbee/go-validatorx"
 )
 
 // ValidationCache provides caching for configuration validation results

@@ -8,7 +8,7 @@ import (
 
 	"github.com/SeaSBee/go-cachex"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/SeaSBee/go-logx"
+	"github.com/seasbee/go-logx"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"

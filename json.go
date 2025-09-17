@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/SeaSBee/go-logx"
+	"github.com/seasbee/go-logx"
 )
 
 // JSONCodec implements the Codec interface using JSON serialization
