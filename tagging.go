@@ -35,13 +35,13 @@ type TagConfig struct {
 	// Enable persistence of tag mappings
 	EnablePersistence bool `yaml:"enable_persistence" json:"enable_persistence"`
 	// TTL for tag mappings
-	TagMappingTTL time.Duration `yaml:"tag_mapping_ttl" json:"tag_mapping_ttl"`
+	TagMappingTTL time.Duration `yaml:"tag_mapping_ttl" json:"tag_mapping_ttl" validate:"min=1s,max=168h"`
 	// Batch size for tag operations
 	BatchSize int `yaml:"batch_size" json:"batch_size"`
 	// Enable statistics
 	EnableStats bool `yaml:"enable_stats" json:"enable_stats"`
 	// Load timeout for tag mappings
-	LoadTimeout time.Duration `yaml:"load_timeout" json:"load_timeout"`
+	LoadTimeout time.Duration `yaml:"load_timeout" json:"load_timeout" validate:"min=1s,max=5m"`
 }
 
 // DefaultTagConfig returns a default configuration with sensible defaults

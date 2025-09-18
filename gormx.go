@@ -36,7 +36,7 @@ type GormConfig struct {
 	// Enable read-through caching
 	EnableReadThrough bool `yaml:"enable_read_through" json:"enable_read_through"`
 	// Default TTL for cached items
-	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl"`
+	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"min=0s,max=24h"`
 	// Enable query result caching
 	EnableQueryCache bool `yaml:"enable_query_cache" json:"enable_query_cache"`
 	// Cache key prefix

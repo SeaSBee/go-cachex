@@ -48,15 +48,15 @@ type LayeredConfig struct {
 	// Layering behavior
 	WritePolicy  WritePolicy   `validate:"omitempty,oneof:through behind around"` // Write-through, write-behind, or write-around
 	ReadPolicy   ReadPolicy    `validate:"omitempty,oneof:through aside around"`  // Read-through, read-aside, or read-around
-	SyncInterval time.Duration `validate:"gte:1000000000,lte:3600000000000"`      // How often to sync L1 with L2 (1s to 1h in nanoseconds)
+	SyncInterval time.Duration `validate:"min=1s,max=1h"`                         // How often to sync L1 with L2 (1s to 1h)
 	EnableStats  bool          // Enable detailed statistics
 
 	// Performance tuning
 	MaxConcurrentSync int `validate:"min:1,max:100"` // Maximum concurrent sync operations
 
 	// Timeout configurations
-	AsyncOperationTimeout time.Duration `validate:"gte:1000000000"` // Timeout for async operations (1s minimum)
-	BackgroundSyncTimeout time.Duration `validate:"gte:1000000000"` // Timeout for background sync operations
+	AsyncOperationTimeout time.Duration `validate:"min=1s"` // Timeout for async operations (1s minimum)
+	BackgroundSyncTimeout time.Duration `validate:"min=1s"` // Timeout for background sync operations
 }
 
 // L2StoreConfig defines L2 store configuration for layered cache

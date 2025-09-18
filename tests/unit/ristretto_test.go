@@ -406,16 +406,21 @@ func TestRistrettoStore_Del_Success(t *testing.T) {
 		t.Errorf("Del() failed: %v", delResult.Error)
 	}
 
-	// Wait a bit for eventual consistency
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify deletion
-	getResult := <-store.Get(ctx, key)
-	if getResult.Error != nil {
-		t.Errorf("Get() failed: %v", getResult.Error)
+	// Wait for eventual consistency with retries
+	var getResult cachex.AsyncResult
+	for i := 0; i < 10; i++ {
+		time.Sleep(50 * time.Millisecond)
+		getResult = <-store.Get(ctx, key)
+		if getResult.Error != nil {
+			t.Errorf("Get() failed: %v", getResult.Error)
+			return
+		}
+		if !getResult.Exists {
+			break // Deletion confirmed
+		}
 	}
 	if getResult.Exists {
-		t.Errorf("Get() should return not found after deletion")
+		t.Errorf("Get() should return not found after deletion (checked 10 times)")
 	}
 }
 
@@ -858,13 +863,16 @@ func TestRistrettoStore_IncrBy_Underflow(t *testing.T) {
 		t.Fatalf("Initial IncrBy() failed: %v", result.Error)
 	}
 
+	// Wait for Ristretto to process the first operation
+	time.Sleep(10 * time.Millisecond)
+
 	// Test that normal decrement works
 	result = <-store.IncrBy(ctx, key, -50, 5*time.Minute)
 	if result.Error != nil {
 		t.Errorf("Normal IncrBy() failed: %v", result.Error)
 	}
-	if result.Result != -50 {
-		t.Errorf("Expected result -50, got %v", result.Result)
+	if result.Result != -150 {
+		t.Errorf("Expected result -150, got %v", result.Result)
 	}
 }
 

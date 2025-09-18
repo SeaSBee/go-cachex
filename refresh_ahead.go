@@ -41,25 +41,25 @@ type RefreshAheadConfig struct {
 	// Enable refresh-ahead
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Default refresh before TTL
-	DefaultRefreshBefore time.Duration `yaml:"default_refresh_before" json:"default_refresh_before"`
+	DefaultRefreshBefore time.Duration `yaml:"default_refresh_before" json:"default_refresh_before" validate:"min=1s,max=1h"`
 	// Maximum concurrent refresh operations
 	MaxConcurrentRefreshes int `yaml:"max_concurrent_refreshes" json:"max_concurrent_refreshes"`
 	// Refresh interval for background scanning
-	RefreshInterval time.Duration `yaml:"refresh_interval" json:"refresh_interval"`
+	RefreshInterval time.Duration `yaml:"refresh_interval" json:"refresh_interval" validate:"min=1s,max=1h"`
 	// Enable distributed locking
 	EnableDistributedLock bool `yaml:"enable_distributed_lock" json:"enable_distributed_lock"`
 	// Lock timeout for refresh operations
-	LockTimeout time.Duration `yaml:"lock_timeout" json:"lock_timeout"`
+	LockTimeout time.Duration `yaml:"lock_timeout" json:"lock_timeout" validate:"min=1s,max=5m"`
 	// Enable metrics
 	EnableMetrics bool `yaml:"enable_metrics" json:"enable_metrics"`
 	// Default TTL for cache entries when TTL retrieval fails
-	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl"`
+	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"min=0s,max=24h"`
 	// Unlock timeout for distributed lock operations
-	UnlockTimeout time.Duration `yaml:"unlock_timeout" json:"unlock_timeout"`
+	UnlockTimeout time.Duration `yaml:"unlock_timeout" json:"unlock_timeout" validate:"min=1s,max=5m"`
 	// Maximum consecutive failures before task cleanup
 	MaxConsecutiveFailures int64 `yaml:"max_consecutive_failures" json:"max_consecutive_failures"`
 	// Maximum task age before cleanup
-	MaxTaskAge time.Duration `yaml:"max_task_age" json:"max_task_age"`
+	MaxTaskAge time.Duration `yaml:"max_task_age" json:"max_task_age" validate:"min=1m,max=24h"`
 }
 
 // DefaultRefreshAheadConfig returns a default configuration

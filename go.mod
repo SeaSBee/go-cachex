@@ -7,7 +7,7 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/seasbee/go-logx v1.2.0
-	github.com/seasbee/go-validatorx v1.1.0
+	github.com/seasbee/go-validatorx v1.1.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.opentelemetry.io/otel v1.37.0

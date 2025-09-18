@@ -39,7 +39,7 @@ type RistrettoConfig struct {
 	// Maximum memory usage in bytes
 	MaxMemoryBytes int64 `validate:"min:1048576,max:34359738368"` // 1MB to 32GB
 	// Default TTL for items
-	DefaultTTL time.Duration `validate:"gte:0,lte:86400000000000"` // 0 to 24h in nanoseconds
+	DefaultTTL time.Duration `validate:"min=0s,max=24h"` // 0 to 24h
 	// Number of counters (should be 10x the number of items)
 	NumCounters int64 `validate:"min:1,max:1000000000"`
 	// Buffer size for items

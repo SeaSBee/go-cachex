@@ -81,8 +81,8 @@ type MemoryConfig struct {
 	MaxMemoryMB int `yaml:"max_memory_mb" json:"max_memory_mb" validate:"min:1,max:32768"` // Maximum memory usage in MB (approximate)
 
 	// TTL settings
-	DefaultTTL      time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"gte:0,lte:86400000000000"`                   // Default TTL for items (0 to 24h in nanoseconds)
-	CleanupInterval time.Duration `yaml:"cleanup_interval" json:"cleanup_interval" validate:"gte:1000000000,lte:3600000000000"` // How often to run cleanup (1s to 1h in nanoseconds)
+	DefaultTTL      time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"min=0s,max=24h"`          // Default TTL for items (0 to 24h)
+	CleanupInterval time.Duration `yaml:"cleanup_interval" json:"cleanup_interval" validate:"min=1s,max=1h"` // How often to run cleanup (1s to 1h)
 
 	// Eviction policy
 	EvictionPolicy EvictionPolicy `yaml:"eviction_policy" json:"eviction_policy" validate:"omitempty,oneof:lru lfu ttl"` // LRU, LFU, or TTL-based

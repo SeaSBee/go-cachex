@@ -45,23 +45,23 @@ type OptimizedTagConfig struct {
 	// Enable persistence of tag mappings
 	EnablePersistence bool `yaml:"enable_persistence" json:"enable_persistence"`
 	// TTL for tag mappings
-	TagMappingTTL time.Duration `yaml:"tag_mapping_ttl" json:"tag_mapping_ttl"`
+	TagMappingTTL time.Duration `yaml:"tag_mapping_ttl" json:"tag_mapping_ttl" validate:"min=1s,max=168h"`
 	// Batch size for tag operations
 	BatchSize int `yaml:"batch_size" json:"batch_size"`
 	// Enable statistics
 	EnableStats bool `yaml:"enable_stats" json:"enable_stats"`
 	// Load timeout for tag mappings
-	LoadTimeout time.Duration `yaml:"load_timeout" json:"load_timeout"`
+	LoadTimeout time.Duration `yaml:"load_timeout" json:"load_timeout" validate:"min=1s,max=5m"`
 	// Enable background persistence
 	EnableBackgroundPersistence bool `yaml:"enable_background_persistence" json:"enable_background_persistence"`
 	// Persistence interval for background operations
-	PersistenceInterval time.Duration `yaml:"persistence_interval" json:"persistence_interval"`
+	PersistenceInterval time.Duration `yaml:"persistence_interval" json:"persistence_interval" validate:"min=1s,max=1h"`
 	// Enable memory optimization
 	EnableMemoryOptimization bool `yaml:"enable_memory_optimization" json:"enable_memory_optimization"`
 	// Maximum memory usage for tag mappings (in bytes)
 	MaxMemoryUsage int64 `yaml:"max_memory_usage" json:"max_memory_usage"`
 	// Batch flush interval
-	BatchFlushInterval time.Duration `yaml:"batch_flush_interval" json:"batch_flush_interval"`
+	BatchFlushInterval time.Duration `yaml:"batch_flush_interval" json:"batch_flush_interval" validate:"min=1s,max=5m"`
 }
 
 // DefaultOptimizedTagConfig returns optimized default configuration

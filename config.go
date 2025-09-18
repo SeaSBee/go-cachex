@@ -20,9 +20,9 @@ type CacheConfig struct {
 	Layered   *LayeredConfig   `yaml:"layered" json:"layered" validate:"omitempty"`
 
 	// General cache settings
-	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"gte:0,lte:86400000000000"` // 0 to 24h in nanoseconds
+	DefaultTTL time.Duration `yaml:"default_ttl" json:"default_ttl" validate:"min=0s,max=24h"` // 0 to 24h
 	MaxRetries int           `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10"`
-	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay" validate:"gte:0,lte:60000000000"` // 0 to 1min in nanoseconds
+	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay" validate:"min=0s,max=1m"` // 0 to 1min
 
 	// Codec settings
 	Codec string `yaml:"codec" json:"codec" validate:"omitempty,oneof:json msgpack"` // "json" or "msgpack"

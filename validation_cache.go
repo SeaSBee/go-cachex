@@ -50,7 +50,7 @@ type ValidationCacheStats struct {
 // ValidationCacheConfig defines configuration for the validation cache
 type ValidationCacheConfig struct {
 	MaxSize     int           // Maximum number of cached results
-	TTL         time.Duration // Time to live for cached results
+	TTL         time.Duration `validate:"min=1s,max=24h"` // Time to live for cached results
 	EnableStats bool          // Enable statistics collection
 }
 
@@ -265,9 +265,9 @@ func (vc *ValidationCache) generateConfigHash(config *CacheConfig) string {
 		Redis         *RedisConfig         `json:"redis,omitempty"`
 		Ristretto     *RistrettoConfig     `json:"ristretto,omitempty"`
 		Layered       *LayeredConfig       `json:"layered,omitempty"`
-		DefaultTTL    time.Duration        `json:"default_ttl"`
+		DefaultTTL    time.Duration        `json:"default_ttl" validate:"min=0s,max=24h"`
 		MaxRetries    int                  `json:"max_retries"`
-		RetryDelay    time.Duration        `json:"retry_delay"`
+		RetryDelay    time.Duration        `json:"retry_delay" validate:"min=0s,max=1m"`
 		Codec         string               `json:"codec"`
 		Observability *ObservabilityConfig `json:"observability,omitempty"`
 		Tagging       *TagConfig           `json:"tagging,omitempty"`

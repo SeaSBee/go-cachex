@@ -53,17 +53,17 @@ type RedisConfig struct {
 	MaxRetries   int `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10"`
 
 	// Timeout settings
-	DialTimeout  time.Duration `yaml:"dial_timeout" json:"dial_timeout" validate:"gte:100000000,lte:300000000000"`   // 100ms to 5min in nanoseconds
-	ReadTimeout  time.Duration `yaml:"read_timeout" json:"read_timeout" validate:"gte:100000000,lte:300000000000"`   // 100ms to 5min in nanoseconds
-	WriteTimeout time.Duration `yaml:"write_timeout" json:"write_timeout" validate:"gte:100000000,lte:300000000000"` // 100ms to 5min in nanoseconds
+	DialTimeout  time.Duration `yaml:"dial_timeout" json:"dial_timeout" validate:"min=100ms,max=5m"`   // 100ms to 5min
+	ReadTimeout  time.Duration `yaml:"read_timeout" json:"read_timeout" validate:"min=100ms,max=5m"`   // 100ms to 5min
+	WriteTimeout time.Duration `yaml:"write_timeout" json:"write_timeout" validate:"min=100ms,max=5m"` // 100ms to 5min
 
 	// Performance settings
 	EnablePipelining bool `yaml:"enable_pipelining" json:"enable_pipelining"`
 	EnableMetrics    bool `yaml:"enable_metrics" json:"enable_metrics"`
 
 	// Health check settings
-	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" validate:"gte:1000000000,lte:120000000000"` // 1s to 2min in nanoseconds
-	HealthCheckTimeout  time.Duration `yaml:"health_check_timeout" json:"health_check_timeout" validate:"gte:1000000000,lte:120000000000"`   // 1s to 2min in nanoseconds
+	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" validate:"min=1s,max=2m"` // 1s to 2min
+	HealthCheckTimeout  time.Duration `yaml:"health_check_timeout" json:"health_check_timeout" validate:"min=1s,max=2m"`   // 1s to 2min
 }
 
 // TLSConfig holds TLS configuration

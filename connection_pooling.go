@@ -60,14 +60,14 @@ type OptimizedConnectionPoolConfig struct {
 	PoolSize           int           `yaml:"pool_size" json:"pool_size" validate:"min:1,max:1000"`
 	MinIdleConns       int           `yaml:"min_idle_conns" json:"min_idle_conns" validate:"gte:0"`
 	MaxRetries         int           `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10"`
-	PoolTimeout        time.Duration `yaml:"pool_timeout" json:"pool_timeout" validate:"gte:100000000,lte:300000000000"`
-	IdleTimeout        time.Duration `yaml:"idle_timeout" json:"idle_timeout" validate:"gte:1000000000,lte:3600000000000"`
-	IdleCheckFrequency time.Duration `yaml:"idle_check_frequency" json:"idle_check_frequency" validate:"gte:1000000000,lte:300000000000"`
+	PoolTimeout        time.Duration `yaml:"pool_timeout" json:"pool_timeout" validate:"min=100ms,max=5m"`
+	IdleTimeout        time.Duration `yaml:"idle_timeout" json:"idle_timeout" validate:"min=1s,max=1h"`
+	IdleCheckFrequency time.Duration `yaml:"idle_check_frequency" json:"idle_check_frequency" validate:"min=1s,max=5m"`
 
 	// Timeout settings
-	DialTimeout  time.Duration `yaml:"dial_timeout" json:"dial_timeout" validate:"gte:100000000,lte:300000000000"`
-	ReadTimeout  time.Duration `yaml:"read_timeout" json:"read_timeout" validate:"gte:100000000,lte:300000000000"`
-	WriteTimeout time.Duration `yaml:"write_timeout" json:"write_timeout" validate:"gte:100000000,lte:300000000000"`
+	DialTimeout  time.Duration `yaml:"dial_timeout" json:"dial_timeout" validate:"min=100ms,max=5m"`
+	ReadTimeout  time.Duration `yaml:"read_timeout" json:"read_timeout" validate:"min=100ms,max=5m"`
+	WriteTimeout time.Duration `yaml:"write_timeout" json:"write_timeout" validate:"min=100ms,max=5m"`
 
 	// Performance settings
 	EnablePipelining     bool `yaml:"enable_pipelining" json:"enable_pipelining"`
@@ -75,19 +75,19 @@ type OptimizedConnectionPoolConfig struct {
 	EnableConnectionPool bool `yaml:"enable_connection_pool" json:"enable_connection_pool"`
 
 	// Health check settings
-	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" validate:"gte:1000000000,lte:120000000000"`
-	HealthCheckTimeout  time.Duration `yaml:"health_check_timeout" json:"health_check_timeout" validate:"gte:1000000000,lte:120000000000"`
+	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" validate:"min=1s,max=2m"`
+	HealthCheckTimeout  time.Duration `yaml:"health_check_timeout" json:"health_check_timeout" validate:"min=1s,max=2m"`
 
 	// Connection pool optimization settings
 	EnableConnectionReuse    bool          `yaml:"enable_connection_reuse" json:"enable_connection_reuse"`
 	EnableConnectionWarming  bool          `yaml:"enable_connection_warming" json:"enable_connection_warming"`
-	ConnectionWarmingTimeout time.Duration `yaml:"connection_warming_timeout" json:"connection_warming_timeout" validate:"gte:1000000000,lte:60000000000"`
+	ConnectionWarmingTimeout time.Duration `yaml:"connection_warming_timeout" json:"connection_warming_timeout" validate:"min=1s,max=1m"`
 	EnableLoadBalancing      bool          `yaml:"enable_load_balancing" json:"enable_load_balancing"`
 	EnableCircuitBreaker     bool          `yaml:"enable_circuit_breaker" json:"enable_circuit_breaker"`
 
 	// Monitoring settings
 	EnablePoolMonitoring bool          `yaml:"enable_pool_monitoring" json:"enable_pool_monitoring"`
-	MonitoringInterval   time.Duration `yaml:"monitoring_interval" json:"monitoring_interval" validate:"gte:1000000000,lte:300000000000"`
+	MonitoringInterval   time.Duration `yaml:"monitoring_interval" json:"monitoring_interval" validate:"min=1s,max=5m"`
 }
 
 // ConnectionPoolStats provides comprehensive connection pool statistics
