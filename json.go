@@ -15,8 +15,6 @@ type JSONCodec struct {
 	AllowNilValues bool
 	// EnableDebugLogging enables debug logging for nil value handling
 	EnableDebugLogging bool
-	// Buffer pool for reducing memory allocations
-	bufferPool *BufferPool
 }
 
 // NewJSONCodec creates a new JSON codec
@@ -24,7 +22,6 @@ func NewJSONCodec() *JSONCodec {
 	return &JSONCodec{
 		AllowNilValues:     false, // Default behavior: reject nil values
 		EnableDebugLogging: false, // Default behavior: no debug logging
-		bufferPool:         GlobalPools.Buffer,
 	}
 }
 
@@ -33,7 +30,6 @@ func NewJSONCodecWithOptions(allowNilValues, enableDebugLogging bool) *JSONCodec
 	return &JSONCodec{
 		AllowNilValues:     allowNilValues,
 		EnableDebugLogging: enableDebugLogging,
-		bufferPool:         GlobalPools.Buffer,
 	}
 }
 
@@ -41,11 +37,6 @@ func NewJSONCodecWithOptions(allowNilValues, enableDebugLogging bool) *JSONCodec
 func (c *JSONCodec) Validate() error {
 	if c == nil {
 		return fmt.Errorf("codec cannot be nil")
-	}
-
-	// Validate buffer pool availability
-	if c.bufferPool == nil {
-		return fmt.Errorf("buffer pool is not initialized")
 	}
 
 	return nil
