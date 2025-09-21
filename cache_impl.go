@@ -28,10 +28,10 @@ func NewRedisCache(client *redis.Client, codec Codec, keyBuilder KeyBuilder, key
 		codec = &JSONCodec{}
 	}
 	if keyBuilder == nil {
-		keyBuilder = &defaultKeyBuilder{}
+		keyBuilder = &DefaultKeyBuilder{}
 	}
 	if keyHasher == nil {
-		keyHasher = &defaultKeyHasher{}
+		keyHasher = &DefaultKeyHasher{}
 	}
 
 	// Create a shared closed flag
@@ -424,27 +424,48 @@ func (c *redisCache) Close() error {
 }
 
 // Default implementations
-type defaultKeyBuilder struct{}
+type DefaultKeyBuilder struct{}
 
-func (b *defaultKeyBuilder) Build(entity, id string) string {
+func (b *DefaultKeyBuilder) Build(entity, id string) string {
 	return fmt.Sprintf("%s:%s", entity, id)
 }
 
-func (b *defaultKeyBuilder) BuildList(entity string, filters map[string]any) string {
+func (b *DefaultKeyBuilder) BuildList(entity string, filters map[string]any) string {
 	return fmt.Sprintf("list:%s", entity)
 }
 
-func (b *defaultKeyBuilder) BuildComposite(entityA, idA, entityB, idB string) string {
+func (b *DefaultKeyBuilder) BuildComposite(entityA, idA, entityB, idB string) string {
 	return fmt.Sprintf("%s:%s:%s:%s", entityA, idA, entityB, idB)
 }
 
-func (b *defaultKeyBuilder) BuildSession(sid string) string {
+func (b *DefaultKeyBuilder) BuildSession(sid string) string {
 	return fmt.Sprintf("session:%s", sid)
 }
 
-type defaultKeyHasher struct{}
+type DefaultKeyHasher struct{}
 
-func (h *defaultKeyHasher) Hash(data string) string {
+func (h *DefaultKeyHasher) Hash(data string) string {
 	// Simple hash implementation
 	return fmt.Sprintf("hash_%s", data)
+}
+
+// KeyBuilder helper methods for redisCache
+func (c *redisCache) BuildKey(entity, id string) string {
+	return c.keyBuilder.Build(entity, id)
+}
+
+func (c *redisCache) BuildListKey(entity string, filters map[string]any) string {
+	return c.keyBuilder.BuildList(entity, filters)
+}
+
+func (c *redisCache) BuildCompositeKey(entityA, idA, entityB, idB string) string {
+	return c.keyBuilder.BuildComposite(entityA, idA, entityB, idB)
+}
+
+func (c *redisCache) BuildSessionKey(sid string) string {
+	return c.keyBuilder.BuildSession(sid)
+}
+
+func (c *redisCache) GetKeyBuilder() KeyBuilder {
+	return c.keyBuilder
 }

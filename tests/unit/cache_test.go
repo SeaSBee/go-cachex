@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/seasbee/go-cachex"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // MockCache implements the Cache interface for testing
@@ -1759,5 +1761,248 @@ func BenchmarkTypedCache_DifferentTypes(b *testing.B) {
 			resultChan := typedCache.Set(ctx, key, i%2 == 0, ttl)
 			<-resultChan
 		}
+	})
+}
+
+// TestKeyBuilderIntegration tests comprehensive KeyBuilder integration scenarios
+func TestKeyBuilderIntegration(t *testing.T) {
+	// Test with advanced Builder
+	t.Run("advanced_builder_integration", func(t *testing.T) {
+		// Create Redis client for this test
+		client := redis.NewClient(&redis.Options{
+			Addr: "localhost:6379",
+		})
+		defer client.Close()
+
+		keyBuilder, err := cachex.NewBuilder("testapp", "test", "test-secret")
+		require.NoError(t, err)
+
+		cache := cachex.NewRedisCache(client, &cachex.JSONCodec{}, keyBuilder, &cachex.DefaultKeyHasher{})
+		defer cache.Close()
+
+		// Cast to CacheWithKeyBuilder
+		cacheWithKeys, ok := cache.(cachex.CacheWithKeyBuilder)
+		require.True(t, ok, "Cache should implement CacheWithKeyBuilder")
+
+		ctx := context.Background()
+
+		// Test BuildKey method
+		userKey := cacheWithKeys.BuildKey("user", "123")
+		assert.NotEmpty(t, userKey)
+		assert.Contains(t, userKey, "testapp")
+		assert.Contains(t, userKey, "test")
+		assert.Contains(t, userKey, "user")
+		assert.Contains(t, userKey, "123")
+
+		// Test BuildListKey method
+		filters := map[string]any{
+			"status": "active",
+			"role":   "admin",
+		}
+		listKey := cacheWithKeys.BuildListKey("users", filters)
+		assert.NotEmpty(t, listKey)
+		assert.Contains(t, listKey, "testapp")
+		assert.Contains(t, listKey, "test")
+		assert.Contains(t, listKey, "list")
+		assert.Contains(t, listKey, "users")
+
+		// Test BuildCompositeKey method
+		compositeKey := cacheWithKeys.BuildCompositeKey("user", "123", "org", "456")
+		assert.NotEmpty(t, compositeKey)
+		assert.Contains(t, compositeKey, "testapp")
+		assert.Contains(t, compositeKey, "test")
+		assert.Contains(t, compositeKey, "user")
+		assert.Contains(t, compositeKey, "123")
+		assert.Contains(t, compositeKey, "org")
+		assert.Contains(t, compositeKey, "456")
+
+		// Test BuildSessionKey method
+		sessionKey := cacheWithKeys.BuildSessionKey("sess-123")
+		assert.NotEmpty(t, sessionKey)
+		assert.Contains(t, sessionKey, "testapp")
+		assert.Contains(t, sessionKey, "test")
+		assert.Contains(t, sessionKey, "session")
+		assert.Contains(t, sessionKey, "sess-123")
+
+		// Test GetKeyBuilder method
+		retrievedBuilder := cacheWithKeys.GetKeyBuilder()
+		assert.NotNil(t, retrievedBuilder)
+		assert.Equal(t, keyBuilder, retrievedBuilder)
+
+		// Test actual cache operations with generated keys
+		typedCache := cachex.NewTypedCache[string](cache)
+
+		// Set value using generated key
+		setResult := <-typedCache.Set(ctx, userKey, "John Doe", time.Hour)
+		assert.NoError(t, setResult.Error)
+
+		// Get value using generated key
+		getResult := <-typedCache.Get(ctx, userKey)
+		assert.NoError(t, getResult.Error)
+		assert.True(t, getResult.Found)
+		assert.Equal(t, "John Doe", getResult.Value)
+	})
+
+	// Test with default KeyBuilder
+	t.Run("default_keybuilder_integration", func(t *testing.T) {
+		// Create Redis client for this test
+		client := redis.NewClient(&redis.Options{
+			Addr: "localhost:6379",
+		})
+		defer client.Close()
+
+		cache := cachex.NewRedisCache(client, &cachex.JSONCodec{}, &cachex.DefaultKeyBuilder{}, &cachex.DefaultKeyHasher{})
+		defer cache.Close()
+
+		// Cast to CacheWithKeyBuilder
+		cacheWithKeys, ok := cache.(cachex.CacheWithKeyBuilder)
+		require.True(t, ok, "Cache should implement CacheWithKeyBuilder")
+
+		ctx := context.Background()
+
+		// Test BuildKey method with default builder
+		userKey := cacheWithKeys.BuildKey("user", "123")
+		assert.Equal(t, "user:123", userKey)
+
+		// Test BuildListKey method with default builder
+		filters := map[string]any{"status": "active"}
+		listKey := cacheWithKeys.BuildListKey("users", filters)
+		assert.Equal(t, "list:users", listKey)
+
+		// Test BuildCompositeKey method with default builder
+		compositeKey := cacheWithKeys.BuildCompositeKey("user", "123", "org", "456")
+		assert.Equal(t, "user:123:org:456", compositeKey)
+
+		// Test BuildSessionKey method with default builder
+		sessionKey := cacheWithKeys.BuildSessionKey("sess-123")
+		assert.Equal(t, "session:sess-123", sessionKey)
+
+		// Test actual cache operations
+		typedCache := cachex.NewTypedCache[int](cache)
+
+		setResult := <-typedCache.Set(ctx, userKey, 42, time.Hour)
+		assert.NoError(t, setResult.Error)
+
+		getResult := <-typedCache.Get(ctx, userKey)
+		assert.NoError(t, getResult.Error)
+		assert.True(t, getResult.Found)
+		assert.Equal(t, 42, getResult.Value)
+	})
+
+	// Test KeyBuilder convenience methods
+	t.Run("keybuilder_convenience_methods", func(t *testing.T) {
+		keyBuilder, err := cachex.NewBuilder("ecommerce", "production", "secret-key")
+		require.NoError(t, err)
+
+		// Test convenience methods
+		userKey := keyBuilder.BuildUser("123")
+		assert.NotEmpty(t, userKey)
+		assert.Contains(t, userKey, "user")
+		assert.Contains(t, userKey, "123")
+
+		orgKey := keyBuilder.BuildOrg("456")
+		assert.NotEmpty(t, orgKey)
+		assert.Contains(t, orgKey, "org")
+		assert.Contains(t, orgKey, "456")
+
+		productKey := keyBuilder.BuildProduct("789")
+		assert.NotEmpty(t, productKey)
+		assert.Contains(t, productKey, "product")
+		assert.Contains(t, productKey, "789")
+
+		orderKey := keyBuilder.BuildOrder("012")
+		assert.NotEmpty(t, orderKey)
+		assert.Contains(t, orderKey, "order")
+		assert.Contains(t, orderKey, "012")
+	})
+
+	// Test key parsing functionality
+	t.Run("key_parsing", func(t *testing.T) {
+		keyBuilder, err := cachex.NewBuilder("testapp", "test", "test-secret")
+		require.NoError(t, err)
+
+		// Build a key
+		originalKey := keyBuilder.Build("user", "123")
+		assert.NotEmpty(t, originalKey)
+
+		// Parse the key back
+		entity, id, err := keyBuilder.ParseKey(originalKey)
+		assert.NoError(t, err)
+		assert.Equal(t, "user", entity)
+		assert.Equal(t, "123", id)
+	})
+
+	// Test error handling
+	t.Run("error_handling", func(t *testing.T) {
+		// Test invalid builder creation
+		_, err := cachex.NewBuilder("", "test", "secret")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "app name cannot be empty")
+
+		_, err = cachex.NewBuilder("app", "", "secret")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "environment cannot be empty")
+
+		_, err = cachex.NewBuilder("app", "test", "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "secret cannot be empty")
+
+		// Test key parsing with invalid key
+		keyBuilder, err := cachex.NewBuilder("testapp", "test", "test-secret")
+		require.NoError(t, err)
+
+		_, _, err = keyBuilder.ParseKey("invalid-key-format")
+		assert.Error(t, err)
+	})
+
+	// Test concurrent access
+	t.Run("concurrent_access", func(t *testing.T) {
+		// Create Redis client for this test
+		client := redis.NewClient(&redis.Options{
+			Addr: "localhost:6379",
+		})
+		defer client.Close()
+
+		keyBuilder, err := cachex.NewBuilder("testapp", "test", "test-secret")
+		require.NoError(t, err)
+
+		cache := cachex.NewRedisCache(client, &cachex.JSONCodec{}, keyBuilder, &cachex.DefaultKeyHasher{})
+		defer cache.Close()
+
+		cacheWithKeys, ok := cache.(cachex.CacheWithKeyBuilder)
+		require.True(t, ok)
+
+		ctx := context.Background()
+		typedCache := cachex.NewTypedCache[string](cache)
+
+		// Test concurrent key building and cache operations
+		var wg sync.WaitGroup
+		numGoroutines := 10
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+
+				// Build unique keys
+				userKey := cacheWithKeys.BuildKey("user", fmt.Sprintf("%d", id))
+				sessionKey := cacheWithKeys.BuildSessionKey(fmt.Sprintf("sess-%d", id))
+
+				// Perform cache operations
+				setResult := <-typedCache.Set(ctx, userKey, fmt.Sprintf("User %d", id), time.Hour)
+				assert.NoError(t, setResult.Error)
+
+				getResult := <-typedCache.Get(ctx, userKey)
+				assert.NoError(t, getResult.Error)
+				assert.True(t, getResult.Found)
+				assert.Equal(t, fmt.Sprintf("User %d", id), getResult.Value)
+
+				// Test session key
+				setResult = <-typedCache.Set(ctx, sessionKey, fmt.Sprintf("Session %d", id), time.Hour)
+				assert.NoError(t, setResult.Error)
+			}(i)
+		}
+
+		wg.Wait()
 	})
 }

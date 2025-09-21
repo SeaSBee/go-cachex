@@ -3,6 +3,8 @@ package cachex
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strconv"
 	"time"
 )
 
@@ -96,8 +98,18 @@ func (tc *TypedCache[T]) Get(ctx context.Context, key string) <-chan AsyncCacheR
 			if typedValue, ok := baseResult.Value.(T); ok {
 				typedResult.Value = typedValue
 			} else {
-				typedResult.Error = fmt.Errorf("type assertion failed: expected %T, got %T", *new(T), baseResult.Value)
-				typedResult.Found = false
+				// Try to convert numeric types
+				if convertedValue, err := convertNumericType(baseResult.Value, *new(T)); err == nil {
+					if typedValue, ok := convertedValue.(T); ok {
+						typedResult.Value = typedValue
+					} else {
+						typedResult.Error = fmt.Errorf("type assertion failed after conversion: expected %T, got %T", *new(T), convertedValue)
+						typedResult.Found = false
+					}
+				} else {
+					typedResult.Error = fmt.Errorf("type assertion failed: expected %T, got %T (conversion error: %v)", *new(T), baseResult.Value, err)
+					typedResult.Found = false
+				}
 			}
 		}
 
@@ -164,8 +176,15 @@ func (tc *TypedCache[T]) MGet(ctx context.Context, keys ...string) <-chan AsyncC
 			for key, value := range baseResult.Values {
 				if typedValue, ok := value.(T); ok {
 					typedValues[key] = typedValue
+				} else {
+					// Try to convert numeric types
+					if convertedValue, err := convertNumericType(value, *new(T)); err == nil {
+						if typedValue, ok := convertedValue.(T); ok {
+							typedValues[key] = typedValue
+						}
+					}
+					// Skip values that don't match the expected type
 				}
-				// Skip values that don't match the expected type
 			}
 			typedResult.Values = typedValues
 		}
@@ -344,4 +363,172 @@ type KeyBuilder interface {
 // KeyHasher defines the interface for key hashing
 type KeyHasher interface {
 	Hash(data string) string
+}
+
+// CacheWithKeyBuilder extends the Cache interface with KeyBuilder helper methods
+type CacheWithKeyBuilder interface {
+	Cache
+	// KeyBuilder helper methods for easier key generation
+	BuildKey(entity, id string) string
+	BuildListKey(entity string, filters map[string]any) string
+	BuildCompositeKey(entityA, idA, entityB, idB string) string
+	BuildSessionKey(sid string) string
+	// Get the underlying KeyBuilder instance
+	GetKeyBuilder() KeyBuilder
+}
+
+// convertNumericType attempts to convert a value to the target type, particularly useful for JSON numeric conversions
+func convertNumericType(value interface{}, target interface{}) (interface{}, error) {
+	targetType := reflect.TypeOf(target)
+	valueType := reflect.TypeOf(value)
+
+	// If types already match, return as-is
+	if valueType == targetType {
+		return value, nil
+	}
+
+	// Handle numeric conversions
+	switch targetType.Kind() {
+	case reflect.Int:
+		switch v := value.(type) {
+		case float64:
+			return int(v), nil
+		case float32:
+			return int(v), nil
+		case int:
+			return v, nil
+		case int8:
+			return int(v), nil
+		case int16:
+			return int(v), nil
+		case int32:
+			return int(v), nil
+		case int64:
+			return int(v), nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+				return int(i), nil
+			}
+		}
+	case reflect.Int8:
+		switch v := value.(type) {
+		case float64:
+			return int8(v), nil
+		case float32:
+			return int8(v), nil
+		case int:
+			return int8(v), nil
+		case int8:
+			return v, nil
+		case int16:
+			return int8(v), nil
+		case int32:
+			return int8(v), nil
+		case int64:
+			return int8(v), nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 8); err == nil {
+				return int8(i), nil
+			}
+		}
+	case reflect.Int16:
+		switch v := value.(type) {
+		case float64:
+			return int16(v), nil
+		case float32:
+			return int16(v), nil
+		case int:
+			return int16(v), nil
+		case int8:
+			return int16(v), nil
+		case int16:
+			return v, nil
+		case int32:
+			return int16(v), nil
+		case int64:
+			return int16(v), nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 16); err == nil {
+				return int16(i), nil
+			}
+		}
+	case reflect.Int32:
+		switch v := value.(type) {
+		case float64:
+			return int32(v), nil
+		case float32:
+			return int32(v), nil
+		case int:
+			return int32(v), nil
+		case int8:
+			return int32(v), nil
+		case int16:
+			return int32(v), nil
+		case int32:
+			return v, nil
+		case int64:
+			return int32(v), nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 32); err == nil {
+				return int32(i), nil
+			}
+		}
+	case reflect.Int64:
+		switch v := value.(type) {
+		case float64:
+			return int64(v), nil
+		case float32:
+			return int64(v), nil
+		case int:
+			return int64(v), nil
+		case int8:
+			return int64(v), nil
+		case int16:
+			return int64(v), nil
+		case int32:
+			return int64(v), nil
+		case int64:
+			return v, nil
+		case string:
+			if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+				return i, nil
+			}
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		switch v := value.(type) {
+		case float64:
+			return uint64(v), nil
+		case float32:
+			return uint64(v), nil
+		case int:
+			if v >= 0 {
+				return uint64(v), nil
+			}
+		case int64:
+			if v >= 0 {
+				return uint64(v), nil
+			}
+		case string:
+			if u, err := strconv.ParseUint(v, 10, 64); err == nil {
+				return u, nil
+			}
+		}
+	case reflect.Float32, reflect.Float64:
+		switch v := value.(type) {
+		case float64:
+			return v, nil
+		case float32:
+			return float64(v), nil
+		case int:
+			return float64(v), nil
+		case int64:
+			return float64(v), nil
+		case string:
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				return f, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("cannot convert %T to %T", value, target)
 }

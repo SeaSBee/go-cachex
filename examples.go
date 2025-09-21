@@ -1666,23 +1666,30 @@ func ExampleCreateRedisCache() {
 	// Example 2: Advanced Redis cache creation with custom settings
 	fmt.Println("\n--- Advanced Redis Cache Creation ---")
 
+	// Create advanced key builder with namespacing
+	keyBuilder, err := NewBuilder("myapp", "production", "secret-key-123")
+	if err != nil {
+		fmt.Printf("Error creating key builder: %v\n", err)
+		return
+	}
+
 	advancedCache, err := CreateRedisCache(
-		"localhost:6379",     // addr
-		"",                   // password
-		1,                    // db (use database 1)
-		20,                   // poolSize (larger pool)
-		10,                   // minIdleConns
-		5,                    // maxRetries
-		10*time.Second,       // dialTimeout (longer timeout)
-		5*time.Second,        // readTimeout
-		5*time.Second,        // writeTimeout
-		true,                 // enablePipelining
-		true,                 // enableMetrics
-		60*time.Second,       // healthCheckInterval
-		10*time.Second,       // healthCheckTimeout
-		&JSONCodec{},         // custom codec
-		&defaultKeyBuilder{}, // custom key builder
-		&defaultKeyHasher{},  // custom key hasher
+		"localhost:6379",    // addr
+		"",                  // password
+		1,                   // db (use database 1)
+		20,                  // poolSize (larger pool)
+		10,                  // minIdleConns
+		5,                   // maxRetries
+		10*time.Second,      // dialTimeout (longer timeout)
+		5*time.Second,       // readTimeout
+		5*time.Second,       // writeTimeout
+		true,                // enablePipelining
+		true,                // enableMetrics
+		60*time.Second,      // healthCheckInterval
+		10*time.Second,      // healthCheckTimeout
+		&JSONCodec{},        // custom codec
+		keyBuilder,          // advanced key builder with namespacing
+		&DefaultKeyHasher{}, // custom key hasher
 	)
 
 	if err != nil {
@@ -1693,12 +1700,41 @@ func ExampleCreateRedisCache() {
 
 	fmt.Println("✓ Advanced Redis cache created successfully")
 
-	// Test advanced operations
+	// Demonstrate KeyBuilder functionality
+	fmt.Println("\n--- KeyBuilder Demonstration ---")
+
+	// Build different types of keys using the advanced key builder
+	userKey := keyBuilder.Build("user", "123")
+	fmt.Printf("✓ User key: %s\n", userKey)
+
+	// Build list key with filters
+	filters := map[string]any{
+		"status": "active",
+		"role":   "admin",
+	}
+	listKey := keyBuilder.BuildList("users", filters)
+	fmt.Printf("✓ List key: %s\n", listKey)
+
+	// Build composite key
+	compositeKey := keyBuilder.BuildComposite("user", "123", "org", "456")
+	fmt.Printf("✓ Composite key: %s\n", compositeKey)
+
+	// Build session key
+	sessionKey := keyBuilder.BuildSession("session-abc123")
+	fmt.Printf("✓ Session key: %s\n", sessionKey)
+
+	// Use convenience methods
+	userKey2 := keyBuilder.BuildUser("456")
+	orgKey := keyBuilder.BuildOrg("789")
+	fmt.Printf("✓ Convenience user key: %s\n", userKey2)
+	fmt.Printf("✓ Convenience org key: %s\n", orgKey)
+
+	// Test advanced operations with generated keys
 	intCache := NewTypedCache[int](advancedCache)
-	<-intCache.Set(ctx, "advanced:test", 42, time.Hour)
-	intResult := <-intCache.Get(ctx, "advanced:test")
+	<-intCache.Set(ctx, userKey, 42, time.Hour)
+	intResult := <-intCache.Get(ctx, userKey)
 	if intResult.Found {
-		fmt.Printf("✓ Advanced cache test: %d\n", intResult.Value)
+		fmt.Printf("✓ Advanced cache test with generated key: %d\n", intResult.Value)
 	}
 
 	// Example 3: Cache creation with authentication
@@ -1872,7 +1908,196 @@ func ExampleMain() {
 	ExampleAdvancedPatterns1()
 	ExampleBaseCacheUsage()
 	ExampleCreateRedisCache()
+	ExampleKeyBuilderIntegration()
 
 	fmt.Println("\n✅ All examples completed successfully!")
 	fmt.Println("=====================================")
+}
+
+// ExampleKeyBuilderIntegration demonstrates comprehensive KeyBuilder usage
+func ExampleKeyBuilderIntegration() {
+	fmt.Println("=== KeyBuilder Integration Example ===")
+
+	// Create Redis client
+	client := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	defer client.Close()
+
+	// Create advanced key builder with namespacing
+	keyBuilder, err := NewBuilder("ecommerce", "production", "secure-secret-2024")
+	if err != nil {
+		fmt.Printf("Error creating key builder: %v\n", err)
+		return
+	}
+
+	// Create cache with advanced key builder
+	cache := NewRedisCache(client, &JSONCodec{}, keyBuilder, &DefaultKeyHasher{})
+	defer cache.Close()
+
+	// Cast to CacheWithKeyBuilder to access helper methods
+	cacheWithKeys, ok := cache.(CacheWithKeyBuilder)
+	if !ok {
+		fmt.Println("Cache does not support KeyBuilder helper methods")
+		return
+	}
+
+	ctx := context.Background()
+
+	// =============================================================================
+	// 1. USER MANAGEMENT WITH KEYBUILDER
+	// =============================================================================
+	fmt.Println("\n--- User Management ---")
+
+	// Build user keys using helper methods
+	userKey := cacheWithKeys.BuildKey("user", "12345")
+	userProfileKey := cacheWithKeys.BuildKey("user_profile", "12345")
+	userSettingsKey := cacheWithKeys.BuildKey("user_settings", "12345")
+
+	fmt.Printf("✓ User key: %s\n", userKey)
+	fmt.Printf("✓ User profile key: %s\n", userProfileKey)
+	fmt.Printf("✓ User settings key: %s\n", userSettingsKey)
+
+	// Store user data
+	userCache := NewTypedCache[map[string]any](cache)
+	userData := map[string]any{
+		"id":      "12345",
+		"name":    "John Doe",
+		"email":   "john@example.com",
+		"role":    "customer",
+		"status":  "active",
+		"created": "2024-01-15",
+	}
+
+	<-userCache.Set(ctx, userKey, userData, 24*time.Hour)
+	fmt.Println("✓ User data stored")
+
+	// =============================================================================
+	// 2. PRODUCT CATALOG WITH LIST KEYS
+	// =============================================================================
+	fmt.Println("\n--- Product Catalog ---")
+
+	// Build list keys with different filters
+	activeProductsKey := cacheWithKeys.BuildListKey("products", map[string]any{
+		"status":   "active",
+		"category": "electronics",
+	})
+
+	featuredProductsKey := cacheWithKeys.BuildListKey("products", map[string]any{
+		"featured": true,
+		"in_stock": true,
+	})
+
+	fmt.Printf("✓ Active products key: %s\n", activeProductsKey)
+	fmt.Printf("✓ Featured products key: %s\n", featuredProductsKey)
+
+	// Store product lists
+	productListCache := NewTypedCache[[]map[string]any](cache)
+	products := []map[string]any{
+		{"id": "p1", "name": "Laptop", "price": 999.99},
+		{"id": "p2", "name": "Phone", "price": 699.99},
+	}
+
+	<-productListCache.Set(ctx, activeProductsKey, products, 2*time.Hour)
+	fmt.Println("✓ Product list stored")
+
+	// =============================================================================
+	// 3. RELATIONSHIP MAPPING WITH COMPOSITE KEYS
+	// =============================================================================
+	fmt.Println("\n--- Relationship Mapping ---")
+
+	// Build composite keys for relationships
+	userOrderKey := cacheWithKeys.BuildCompositeKey("user", "12345", "order", "ord-001")
+	userCartKey := cacheWithKeys.BuildCompositeKey("user", "12345", "cart", "current")
+	productCategoryKey := cacheWithKeys.BuildCompositeKey("product", "p1", "category", "electronics")
+
+	fmt.Printf("✓ User-order key: %s\n", userOrderKey)
+	fmt.Printf("✓ User-cart key: %s\n", userCartKey)
+	fmt.Printf("✓ Product-category key: %s\n", productCategoryKey)
+
+	// Store relationship data
+	orderData := map[string]any{
+		"order_id": "ord-001",
+		"user_id":  "12345",
+		"items":    []string{"p1", "p2"},
+		"total":    1699.98,
+		"status":   "pending",
+	}
+
+	<-userCache.Set(ctx, userOrderKey, orderData, 7*24*time.Hour)
+	fmt.Println("✓ Order relationship stored")
+
+	// =============================================================================
+	// 4. SESSION MANAGEMENT
+	// =============================================================================
+	fmt.Println("\n--- Session Management ---")
+
+	// Build session keys
+	sessionKey := cacheWithKeys.BuildSessionKey("sess-abc123def456")
+	userSessionKey := cacheWithKeys.BuildSessionKey("user-sess-12345")
+
+	fmt.Printf("✓ Session key: %s\n", sessionKey)
+	fmt.Printf("✓ User session key: %s\n", userSessionKey)
+
+	// Store session data
+	sessionData := map[string]any{
+		"session_id": "sess-abc123def456",
+		"user_id":    "12345",
+		"login_time": "2024-01-15T10:30:00Z",
+		"expires_at": "2024-01-15T22:30:00Z",
+		"ip_address": "192.168.1.100",
+	}
+
+	<-userCache.Set(ctx, sessionKey, sessionData, 12*time.Hour)
+	fmt.Println("✓ Session data stored")
+
+	// =============================================================================
+	// 5. RETRIEVAL AND VALIDATION
+	// =============================================================================
+	fmt.Println("\n--- Data Retrieval ---")
+
+	// Retrieve and validate stored data
+	retrievedUser := <-userCache.Get(ctx, userKey)
+	if retrievedUser.Found {
+		fmt.Printf("✓ Retrieved user: %v\n", retrievedUser.Value["name"])
+	}
+
+	retrievedOrder := <-userCache.Get(ctx, userOrderKey)
+	if retrievedOrder.Found {
+		fmt.Printf("✓ Retrieved order total: $%.2f\n", retrievedOrder.Value["total"])
+	}
+
+	retrievedSession := <-userCache.Get(ctx, sessionKey)
+	if retrievedSession.Found {
+		fmt.Printf("✓ Retrieved session for user: %v\n", retrievedSession.Value["user_id"])
+	}
+
+	// =============================================================================
+	// 6. KEY PARSING AND VALIDATION
+	// =============================================================================
+	fmt.Println("\n--- Key Parsing ---")
+
+	// Parse keys back to components
+	entity, id, err := keyBuilder.ParseKey(userKey)
+	if err == nil {
+		fmt.Printf("✓ Parsed user key - Entity: %s, ID: %s\n", entity, id)
+	}
+
+	// =============================================================================
+	// 7. CONVENIENCE METHODS DEMONSTRATION
+	// =============================================================================
+	fmt.Println("\n--- Convenience Methods ---")
+
+	// Use convenience methods for common entities
+	convenienceUserKey := keyBuilder.BuildUser("67890")
+	convenienceOrgKey := keyBuilder.BuildOrg("org-001")
+	convenienceProductKey := keyBuilder.BuildProduct("p3")
+	convenienceOrderKey := keyBuilder.BuildOrder("ord-002")
+
+	fmt.Printf("✓ Convenience user key: %s\n", convenienceUserKey)
+	fmt.Printf("✓ Convenience org key: %s\n", convenienceOrgKey)
+	fmt.Printf("✓ Convenience product key: %s\n", convenienceProductKey)
+	fmt.Printf("✓ Convenience order key: %s\n", convenienceOrderKey)
+
+	fmt.Println("\n✓ KeyBuilder integration example completed successfully")
 }

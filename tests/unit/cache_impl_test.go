@@ -471,10 +471,14 @@ func TestRedisCache_Get(t *testing.T) {
 		mockCodec := NewMockCodec()
 		cache := cachex.NewRedisCache(client, mockCodec, nil, nil)
 
-		// Set up test data in Redis (would need real Redis instance)
+		// First set some data, then set decode error for subsequent gets
+		ctx := context.Background()
+		setResultChan := cache.Set(ctx, "test-key", "test-value", time.Hour)
+		<-setResultChan // Wait for set to complete
+
+		// Now set decode error
 		mockCodec.decodeError = errors.New("decode error")
 
-		ctx := context.Background()
 		resultChan := cache.Get(ctx, "test-key")
 
 		select {

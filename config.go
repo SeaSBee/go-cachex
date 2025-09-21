@@ -12,14 +12,14 @@ import (
 // Config holds Redis store configuration
 type RedisConfig struct {
 	// Redis connection settings
-	Addr     string `yaml:"addr" json:"addr" validate:"required,max:256"`
-	Password string `yaml:"password" json:"password" validate:"omitempty"`
-	DB       int    `yaml:"db" json:"db" validate:"gte:0,lte:15"`
+	Addr     string `yaml:"addr" json:"addr" validate:"required,max:256" default:"localhost:6379"` // max 256 chars
+	Password string `yaml:"password" json:"password" validate:"omitempty" default:""`              // optional
+	DB       int    `yaml:"db" json:"db" validate:"gte:0,lte:15" default:"0"`                      // 0 to 15
 
 	// Connection pool settings
-	PoolSize     int `yaml:"pool_size" json:"pool_size" validate:"min:1,max:1000"`
-	MinIdleConns int `yaml:"min_idle_conns" json:"min_idle_conns" validate:"gte:0"`
-	MaxRetries   int `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10"`
+	PoolSize     int `yaml:"pool_size" json:"pool_size" validate:"min:1,max:1000" default:"10"`  // 1 to 1000
+	MinIdleConns int `yaml:"min_idle_conns" json:"min_idle_conns" validate:"gte:0" default:"5"`  // 0 or more
+	MaxRetries   int `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10" default:"3"` // 0 to 10
 
 	// Timeout settings
 	DialTimeout  time.Duration `yaml:"dial_timeout" json:"dial_timeout" validate:"min=100ms,max=5m" default:"5s"`   // 100ms to 5min
