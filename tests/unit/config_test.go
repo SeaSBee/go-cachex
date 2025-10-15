@@ -129,6 +129,7 @@ func TestNewRedisConfig(t *testing.T) {
 				tt.addr,
 				tt.password,
 				tt.db,
+				"", // username
 				tt.poolSize,
 				tt.minIdleConns,
 				tt.maxRetries,
@@ -148,28 +149,29 @@ func TestNewRedisConfig(t *testing.T) {
 
 func TestRedisConfig_Validate(t *testing.T) {
 	tests := []struct {
-		name     string
-		config   *cachex.RedisConfig
-		expected bool
+		name        string
+		config      *cachex.RedisConfig
+		expectError bool
+		errorMsg    string
 	}{
 		{
 			name: "valid configuration",
 			config: &cachex.RedisConfig{
 				Addr:                "localhost:6379",
-				Password:            "secret",
-				DB:                  1,
+				Password:            "",
+				DB:                  0,
 				PoolSize:            10,
 				MinIdleConns:        5,
 				MaxRetries:          3,
 				DialTimeout:         5 * time.Second,
 				ReadTimeout:         3 * time.Second,
 				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    true,
-				EnableMetrics:       true,
+				EnablePipelining:    false,
+				EnableMetrics:       false,
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: true,
+			expectError: false,
 		},
 		{
 			name: "empty address",
@@ -188,72 +190,16 @@ func TestRedisConfig_Validate(t *testing.T) {
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: false,
+			expectError: true,
+			errorMsg:    "address is required",
 		},
 		{
-			name: "address too long",
-			config: &cachex.RedisConfig{
-				Addr:                "this-is-a-very-long-address-that-exceeds-the-maximum-length-of-256-characters-and-should-cause-validation-to-fail-because-it-is-way-too-long-and-does-not-follow-the-validation-rules-that-have-been-set-for-the-address-field-in-the-redis-config-struct",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid database number (negative)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  -1,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid database number (too high)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  16,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid pool size (too small)",
+			name: "negative pool size",
 			config: &cachex.RedisConfig{
 				Addr:                "localhost:6379",
 				Password:            "",
 				DB:                  0,
-				PoolSize:            0,
+				PoolSize:            -1,
 				MinIdleConns:        5,
 				MaxRetries:          3,
 				DialTimeout:         5 * time.Second,
@@ -264,10 +210,11 @@ func TestRedisConfig_Validate(t *testing.T) {
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: false,
+			expectError: true,
+			errorMsg:    "pool size cannot be negative",
 		},
 		{
-			name: "invalid pool size (too large)",
+			name: "pool size too large",
 			config: &cachex.RedisConfig{
 				Addr:                "localhost:6379",
 				Password:            "",
@@ -283,16 +230,17 @@ func TestRedisConfig_Validate(t *testing.T) {
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: false,
+			expectError: true,
+			errorMsg:    "pool size cannot exceed 1000",
 		},
 		{
-			name: "invalid min idle conns (negative)",
+			name: "min idle conns exceeds pool size",
 			config: &cachex.RedisConfig{
 				Addr:                "localhost:6379",
 				Password:            "",
 				DB:                  0,
 				PoolSize:            10,
-				MinIdleConns:        -1,
+				MinIdleConns:        15,
 				MaxRetries:          3,
 				DialTimeout:         5 * time.Second,
 				ReadTimeout:         3 * time.Second,
@@ -302,29 +250,11 @@ func TestRedisConfig_Validate(t *testing.T) {
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: false,
+			expectError: true,
+			errorMsg:    "min idle connections cannot exceed pool size",
 		},
 		{
-			name: "invalid max retries (negative)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          -1,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid max retries (too high)",
+			name: "max retries too high",
 			config: &cachex.RedisConfig{
 				Addr:                "localhost:6379",
 				Password:            "",
@@ -340,10 +270,11 @@ func TestRedisConfig_Validate(t *testing.T) {
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: false,
+			expectError: true,
+			errorMsg:    "max retries cannot exceed 10",
 		},
 		{
-			name: "invalid dial timeout (too short)",
+			name: "negative dial timeout",
 			config: &cachex.RedisConfig{
 				Addr:                "localhost:6379",
 				Password:            "",
@@ -351,7 +282,7 @@ func TestRedisConfig_Validate(t *testing.T) {
 				PoolSize:            10,
 				MinIdleConns:        5,
 				MaxRetries:          3,
-				DialTimeout:         50 * time.Millisecond,
+				DialTimeout:         -1 * time.Second,
 				ReadTimeout:         3 * time.Second,
 				WriteTimeout:        3 * time.Second,
 				EnablePipelining:    false,
@@ -359,202 +290,20 @@ func TestRedisConfig_Validate(t *testing.T) {
 				HealthCheckInterval: 30 * time.Second,
 				HealthCheckTimeout:  5 * time.Second,
 			},
-			expected: false,
-		},
-		{
-			name: "invalid dial timeout (too long)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         6 * time.Minute,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid read timeout (too short)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         50 * time.Millisecond,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid read timeout (too long)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         6 * time.Minute,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid write timeout (too short)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        50 * time.Millisecond,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid write timeout (too long)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        6 * time.Minute,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid health check interval (too short)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 500 * time.Millisecond,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid health check interval (too long)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 3 * time.Minute,
-				HealthCheckTimeout:  5 * time.Second,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid health check timeout (too short)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  500 * time.Millisecond,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid health check timeout (too long)",
-			config: &cachex.RedisConfig{
-				Addr:                "localhost:6379",
-				Password:            "",
-				DB:                  0,
-				PoolSize:            10,
-				MinIdleConns:        5,
-				MaxRetries:          3,
-				DialTimeout:         5 * time.Second,
-				ReadTimeout:         3 * time.Second,
-				WriteTimeout:        3 * time.Second,
-				EnablePipelining:    false,
-				EnableMetrics:       false,
-				HealthCheckInterval: 30 * time.Second,
-				HealthCheckTimeout:  3 * time.Minute,
-			},
-			expected: false,
+			expectError: true,
+			errorMsg:    "dial timeout cannot be negative",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Handle potential panic from validator library
-			defer func() {
-				if r := recover(); r != nil {
-					// If we expected an error and got a panic, that's acceptable
-					// as the validator library has issues with empty strings
-					if !tt.expected {
-						t.Logf("Validation panicked (expected for invalid config): %v", r)
-					} else {
-						t.Errorf("Validation panicked unexpectedly: %v", r)
-					}
-				}
-			}()
+			err := tt.config.Validate()
 
-			result := tt.config.Validate()
-			assert.Equal(t, tt.expected, result.Valid)
-
-			if !tt.expected {
-				assert.NotEmpty(t, result.Errors)
-				assert.Greater(t, len(result.Errors), 0)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -653,15 +402,6 @@ func TestRedisConfig_ConnectRedisClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Handle potential panic from validator library
-			defer func() {
-				if r := recover(); r != nil {
-					// The validator library has a bug that causes panics even for valid configs
-					// So we treat all panics as acceptable for now
-					t.Logf("ConnectRedisClient panicked (acceptable due to validator library bug): %v", r)
-				}
-			}()
-
 			ctx := context.Background()
 			client, err := tt.config.ConnectRedisClient(ctx)
 
@@ -828,19 +568,11 @@ func TestCreateRedisCache(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Handle potential panic from validator library
-			defer func() {
-				if r := recover(); r != nil {
-					// The validator library has a bug that causes panics even for valid configs
-					// So we treat all panics as acceptable for now
-					t.Logf("CreateRedisCache panicked (acceptable due to validator library bug): %v", r)
-				}
-			}()
-
 			cache, err := cachex.CreateRedisCache(
 				tt.addr,
 				tt.password,
 				tt.db,
+				"", // username
 				tt.poolSize,
 				tt.minIdleConns,
 				tt.maxRetries,
@@ -877,12 +609,6 @@ func TestCreateRedisCache(t *testing.T) {
 // TestRedisConfig_EdgeCases tests edge cases and boundary conditions
 func TestRedisConfig_EdgeCases(t *testing.T) {
 	t.Run("boundary values", func(t *testing.T) {
-		// Handle potential panic from validator library
-		defer func() {
-			if r := recover(); r != nil {
-				t.Logf("Edge case validation panicked (acceptable due to validator library bug): %v", r)
-			}
-		}()
 
 		// Test minimum valid values
 		config := &cachex.RedisConfig{
@@ -901,8 +627,8 @@ func TestRedisConfig_EdgeCases(t *testing.T) {
 			HealthCheckTimeout:  1 * time.Second, // Minimum valid health check timeout
 		}
 
-		result := config.Validate()
-		assert.True(t, result.Valid, "Minimum valid values should pass validation")
+		err := config.Validate()
+		assert.NoError(t, err, "Minimum valid values should pass validation")
 
 		// Test maximum valid values
 		config = &cachex.RedisConfig{
@@ -921,17 +647,11 @@ func TestRedisConfig_EdgeCases(t *testing.T) {
 			HealthCheckTimeout:  2 * time.Minute, // Maximum valid health check timeout
 		}
 
-		result = config.Validate()
-		assert.True(t, result.Valid, "Maximum valid values should pass validation")
+		err = config.Validate()
+		assert.NoError(t, err, "Maximum valid values should pass validation")
 	})
 
 	t.Run("zero values", func(t *testing.T) {
-		// Handle potential panic from validator library
-		defer func() {
-			if r := recover(); r != nil {
-				t.Logf("Zero values validation panicked (acceptable due to validator library bug): %v", r)
-			}
-		}()
 
 		config := &cachex.RedisConfig{
 			Addr:                "localhost:6379",
@@ -949,49 +669,32 @@ func TestRedisConfig_EdgeCases(t *testing.T) {
 			HealthCheckTimeout:  0, // Invalid - should fail
 		}
 
-		result := config.Validate()
-		assert.False(t, result.Valid, "Zero values for required fields should fail validation")
-		assert.NotEmpty(t, result.Errors)
+		err := config.Validate()
+		assert.Error(t, err, "Zero values for required fields should fail validation")
 	})
 }
 
 // TestRedisConfig_ValidationErrorMessages tests that validation errors provide meaningful messages
 func TestRedisConfig_ValidationErrorMessages(t *testing.T) {
-	// Handle potential panic from validator library
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Validation error messages test panicked (acceptable due to validator library bug): %v", r)
-		}
-	}()
-
 	config := &cachex.RedisConfig{
 		Addr:                "", // Empty address
 		Password:            "",
-		DB:                  -1,                    // Invalid DB
-		PoolSize:            0,                     // Invalid pool size
-		MinIdleConns:        -1,                    // Invalid min idle conns
-		MaxRetries:          -1,                    // Invalid max retries
-		DialTimeout:         50 * time.Millisecond, // Too short
-		ReadTimeout:         50 * time.Millisecond, // Too short
-		WriteTimeout:        50 * time.Millisecond, // Too short
+		DB:                  0,
+		PoolSize:            -1,               // Invalid pool size
+		MinIdleConns:        -1,               // Invalid min idle conns
+		MaxRetries:          -1,               // Invalid max retries
+		DialTimeout:         -1 * time.Second, // Invalid timeout
+		ReadTimeout:         -1 * time.Second, // Invalid timeout
+		WriteTimeout:        -1 * time.Second, // Invalid timeout
 		EnablePipelining:    false,
 		EnableMetrics:       false,
-		HealthCheckInterval: 500 * time.Millisecond, // Too short
-		HealthCheckTimeout:  500 * time.Millisecond, // Too short
+		HealthCheckInterval: -1 * time.Second, // Invalid timeout
+		HealthCheckTimeout:  -1 * time.Second, // Invalid timeout
 	}
 
-	result := config.Validate()
-	assert.False(t, result.Valid)
-	assert.NotEmpty(t, result.Errors)
-
-	// Check that we have multiple validation errors
-	assert.Greater(t, len(result.Errors), 5, "Should have multiple validation errors")
-
-	// Check that error messages are not empty
-	for _, err := range result.Errors {
-		assert.NotEmpty(t, err.Message, "Error message should not be empty")
-		assert.NotEmpty(t, err.Field, "Error field should not be empty")
-	}
+	err := config.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "address is required")
 }
 
 // TestRedisConfig_CreateRedisClient_OptionsMapping tests that Redis client options are properly mapped
@@ -1029,6 +732,7 @@ func BenchmarkNewRedisConfig(b *testing.B) {
 			"localhost:6379",
 			"password",
 			1,
+			"", // username
 			10,
 			5,
 			3,

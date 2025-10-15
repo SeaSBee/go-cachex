@@ -1632,6 +1632,7 @@ func ExampleCreateRedisCache() {
 		"localhost:6379", // addr
 		"",               // password (empty for no auth)
 		0,                // db (default database)
+		"",               // username (empty for no auth)
 		10,               // poolSize
 		5,                // minIdleConns
 		3,                // maxRetries
@@ -1677,6 +1678,7 @@ func ExampleCreateRedisCache() {
 		"localhost:6379",    // addr
 		"",                  // password
 		1,                   // db (use database 1)
+		"",                  // username
 		20,                  // poolSize (larger pool)
 		10,                  // minIdleConns
 		5,                   // maxRetries
@@ -1746,6 +1748,7 @@ func ExampleCreateRedisCache() {
 		"localhost:6379", // addr
 		"",               // password (empty for no auth, set actual password in production)
 		0,                // db
+		"",               // username
 		15,               // poolSize
 		8,                // minIdleConns
 		3,                // maxRetries
@@ -1776,6 +1779,7 @@ func ExampleCreateRedisCache() {
 		"localhost:6379", // addr
 		"",               // password
 		0,                // db
+		"",               // username
 		50,               // poolSize (large pool for high concurrency)
 		25,               // minIdleConns (many idle connections)
 		10,               // maxRetries (more retries for reliability)
@@ -1821,6 +1825,7 @@ func ExampleCreateRedisCache() {
 		"invalid:address:6379", // invalid addr
 		"",                     // password
 		0,                      // db
+		"",                     // username
 		10,                     // poolSize
 		5,                      // minIdleConns
 		3,                      // maxRetries
@@ -1847,7 +1852,7 @@ func ExampleCreateRedisCache() {
 
 	// Create caches for different databases
 	db0Cache, err := CreateRedisCache(
-		"localhost:6379", "", 0, 10, 5, 3,
+		"localhost:6379", "", 0, "", 10, 5, 3,
 		5*time.Second, 3*time.Second, 3*time.Second,
 		true, false, 30*time.Second, 5*time.Second,
 		nil, nil, nil,
@@ -1859,7 +1864,7 @@ func ExampleCreateRedisCache() {
 	defer db0Cache.Close()
 
 	db1Cache, err := CreateRedisCache(
-		"localhost:6379", "", 1, 10, 5, 3,
+		"localhost:6379", "", 1, "", 10, 5, 3,
 		5*time.Second, 3*time.Second, 3*time.Second,
 		true, false, 30*time.Second, 5*time.Second,
 		nil, nil, nil,

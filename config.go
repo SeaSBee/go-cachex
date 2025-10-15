@@ -6,33 +6,33 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/seasbee/go-validatorx"
 )
 
 // Config holds Redis store configuration
 type RedisConfig struct {
 	// Redis connection settings
-	Addr     string `yaml:"addr" json:"addr" validate:"required,max:256" default:"localhost:6379"` // max 256 chars
-	Password string `yaml:"password" json:"password" validate:"omitempty" default:""`              // optional
-	DB       int    `yaml:"db" json:"db" validate:"gte:0,lte:15" default:"0"`                      // 0 to 15
+	Addr     string
+	Password string
+	DB       int
+	Username string
 
 	// Connection pool settings
-	PoolSize     int `yaml:"pool_size" json:"pool_size" validate:"min:1,max:1000" default:"10"`  // 1 to 1000
-	MinIdleConns int `yaml:"min_idle_conns" json:"min_idle_conns" validate:"gte:0" default:"5"`  // 0 or more
-	MaxRetries   int `yaml:"max_retries" json:"max_retries" validate:"gte:0,lte:10" default:"3"` // 0 to 10
+	PoolSize     int
+	MinIdleConns int
+	MaxRetries   int
 
 	// Timeout settings
-	DialTimeout  time.Duration `yaml:"dial_timeout" json:"dial_timeout" validate:"min=100ms,max=5m" default:"5s"`   // 100ms to 5min
-	ReadTimeout  time.Duration `yaml:"read_timeout" json:"read_timeout" validate:"min=100ms,max=5m" default:"3s"`   // 100ms to 5min
-	WriteTimeout time.Duration `yaml:"write_timeout" json:"write_timeout" validate:"min=100ms,max=5m" default:"3s"` // 100ms to 5min
+	DialTimeout  time.Duration
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 
 	// Performance settings
-	EnablePipelining bool `yaml:"enable_pipelining" json:"enable_pipelining"`
-	EnableMetrics    bool `yaml:"enable_metrics" json:"enable_metrics"`
+	EnablePipelining bool
+	EnableMetrics    bool
 
 	// Health check settings
-	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" validate:"min=1s,max=2m" default:"30s"` // 1s to 2min
-	HealthCheckTimeout  time.Duration `yaml:"health_check_timeout" json:"health_check_timeout" validate:"min=1s,max=2m" default:"5s"`    // 1s to 2min
+	HealthCheckInterval time.Duration
+	HealthCheckTimeout  time.Duration
 }
 
 // NewRedisConfigWithParams creates a new RedisConfig with all parameters as input
@@ -40,6 +40,7 @@ func NewRedisConfig(
 	addr string,
 	password string,
 	db int,
+	username string,
 	poolSize int,
 	minIdleConns int,
 	maxRetries int,
@@ -55,6 +56,7 @@ func NewRedisConfig(
 		Addr:                addr,
 		Password:            password,
 		DB:                  db,
+		Username:            username,
 		PoolSize:            poolSize,
 		MinIdleConns:        minIdleConns,
 		MaxRetries:          maxRetries,
@@ -68,9 +70,51 @@ func NewRedisConfig(
 	}
 }
 
-// Validate validates the RedisConfig using go-validatorx
-func (r *RedisConfig) Validate() *validatorx.ValidationResult {
-	return validatorx.ValidateStruct(r)
+// Validate validates the RedisConfig
+func (r *RedisConfig) Validate() error {
+	if r.Addr == "" {
+		return errors.New("address is required")
+	}
+	if r.DB < 0 {
+		return errors.New("database number cannot be negative")
+	}
+	if r.DB > 15 {
+		return errors.New("database number cannot exceed 15")
+	}
+	if r.PoolSize < 0 {
+		return errors.New("pool size cannot be negative")
+	}
+	if r.PoolSize > 1000 {
+		return errors.New("pool size cannot exceed 1000")
+	}
+	if r.MinIdleConns < 0 {
+		return errors.New("min idle connections cannot be negative")
+	}
+	if r.MinIdleConns > r.PoolSize {
+		return errors.New("min idle connections cannot exceed pool size")
+	}
+	if r.MaxRetries < 0 {
+		return errors.New("max retries cannot be negative")
+	}
+	if r.MaxRetries > 10 {
+		return errors.New("max retries cannot exceed 10")
+	}
+	if r.DialTimeout < 0 {
+		return errors.New("dial timeout cannot be negative")
+	}
+	if r.ReadTimeout <= 0 {
+		return errors.New("read timeout must be positive")
+	}
+	if r.WriteTimeout <= 0 {
+		return errors.New("write timeout must be positive")
+	}
+	if r.HealthCheckInterval <= 0 {
+		return errors.New("health check interval must be positive")
+	}
+	if r.HealthCheckTimeout <= 0 {
+		return errors.New("health check timeout must be positive")
+	}
+	return nil
 }
 
 // CreateRedisClient creates a Redis client from the RedisConfig
@@ -79,6 +123,7 @@ func (r *RedisConfig) CreateRedisClient() *redis.Client {
 		Addr:         r.Addr,
 		Password:     r.Password,
 		DB:           r.DB,
+		Username:     r.Username,
 		PoolSize:     r.PoolSize,
 		MinIdleConns: r.MinIdleConns,
 		MaxRetries:   r.MaxRetries,
@@ -93,8 +138,8 @@ func (r *RedisConfig) CreateRedisClient() *redis.Client {
 // ConnectRedisClient creates a Redis client and tests the connection
 func (r *RedisConfig) ConnectRedisClient(ctx context.Context) (*redis.Client, error) {
 	// Validate configuration first
-	if result := r.Validate(); !result.Valid {
-		return nil, errors.New(result.Errors[0].Message)
+	if err := r.Validate(); err != nil {
+		return nil, err
 	}
 
 	// Create client
@@ -118,6 +163,7 @@ func CreateRedisCache(
 	password string,
 	db int,
 	// Connection pool settings
+	username string,
 	poolSize int,
 	minIdleConns int,
 	maxRetries int,
@@ -141,6 +187,7 @@ func CreateRedisCache(
 		addr,
 		password,
 		db,
+		username,
 		poolSize,
 		minIdleConns,
 		maxRetries,
@@ -152,11 +199,6 @@ func CreateRedisCache(
 		healthCheckInterval,
 		healthCheckTimeout,
 	)
-
-	// Validate configuration
-	if result := config.Validate(); !result.Valid {
-		return nil, errors.New(result.Errors[0].Message)
-	}
 
 	// Create and test Redis client connection
 	ctx := context.Background()
